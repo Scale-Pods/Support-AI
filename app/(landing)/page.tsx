@@ -17,7 +17,7 @@ export default function LandingPage() {
   const { theme, toggleTheme } = useTheme()
   const [messages, setMessages] = useState<ChatMsg[]>([{
     role: 'ai',
-    text: "Hi! I'm the SupportAI assistant. I can answer general questions about our platform and company. For product-specific support, please sign into the client portal.",
+    text: "Hi! I'm the SupportAI assistant. Ask me about our products, pricing, or how ScalePods works. For product-specific support, please sign into the client portal.",
     time: getTime()
   }])
   const [input, setInput] = useState('')
@@ -230,53 +230,86 @@ export default function LandingPage() {
   return (
     <div style={S.page}>
       <BgOrbs />
+      <style>{`
+        @media (max-width: 768px) {
+          .landing-nav-links { display: none !important; }
+          .landing-nav-cta .btn-ghost-text { display: none !important; }
+          .landing-hero { padding: 7rem 1rem 3rem !important; }
+          .landing-hero-title { font-size: 2rem !important; }
+          .landing-hero-subtitle { font-size: 1rem !important; }
+          .landing-hero-actions { flex-direction: column !important; align-items: center !important; }
+          .landing-hero-actions a { width: 100% !important; max-width: 280px !important; justify-content: center !important; }
+          .landing-hero-stats { gap: 1.5rem !important; }
+          .landing-stat-val { font-size: 1.5rem !important; }
+          .landing-section { padding: 3.5rem 1rem !important; }
+          .landing-how-grid { grid-template-columns: 1fr !important; gap: 2rem !important; }
+          .landing-features-grid { grid-template-columns: 1fr !important; }
+          .landing-portals-grid { grid-template-columns: 1fr !important; }
+          .landing-cta-card { padding: 2.5rem 1.5rem !important; }
+          .landing-cta-actions { flex-direction: column !important; align-items: center !important; }
+          .landing-footer { font-size: 0.75rem !important; padding: 1.5rem 1rem !important; }
+          .landing-chat-msgs { height: 280px !important; padding: 1rem !important; }
+          .landing-chat-input-row { padding: 0 1rem 1rem !important; }
+          .landing-chat-chips { padding: 0 1rem !important; }
+        }
+        @media (max-width: 480px) {
+          .landing-hero-title { font-size: 1.75rem !important; }
+          .landing-hero-subtitle { font-size: 0.9rem !important; }
+          .landing-stat-val { font-size: 1.25rem !important; }
+          .landing-stat-label { font-size: 0.7rem !important; }
+          .landing-cta-card { padding: 2rem 1rem !important; }
+          .landing-cta-card h2 { font-size: 1.5rem !important; }
+          .landing-chat-msgs { height: 240px !important; }
+          .landing-nav { padding: 0 1rem !important; }
+        }
+      `}</style>
 
-      <nav style={S.nav}>
+      <nav style={S.nav} className="landing-nav">
         <div style={S.logo}><div style={S.logoDot} /><span>SupportAI</span></div>
-        <div style={S.navLinks}>
+        <div style={S.navLinks} className="landing-nav-links">
           {['#features','#how-it-works','#portals','#chat'].map(href => (
             <a key={href} href={href} style={S.navLink}>{href.replace('#','').replace(/-/g,' ').replace(/\b\w/g, c => c.toUpperCase())}</a>
           ))}
         </div>
-        <div style={S.navCta}>
+        <div style={S.navCta} className="landing-nav-cta">
           <button onClick={toggleTheme} style={{ ...S.btnGhost, padding:'0.5rem', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem' }} title="Toggle theme">
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          <Link href="/login" style={S.btnGhost}>Client Login</Link>
+          <Link href="/login" style={S.btnGhost} className="btn-ghost-text">Client Login</Link>
           <Link href="/admin"  style={S.btnPrimary}>Admin Portal</Link>
         </div>
       </nav>
 
-      <section style={S.hero}>
+      <section style={S.hero} className="landing-hero">
         <div style={S.badge}><div style={S.badgeDot} />AI-Powered Support Platform</div>
-        <h1 style={S.heroTitle}>
+        <h1 style={S.heroTitle} className="landing-hero-title">
           Support that resolves,<br />
           <span className="gradient-text">not just responds</span>
         </h1>
-        <p style={S.heroSubtitle}>
+        <p style={S.heroSubtitle} className="landing-hero-subtitle">
           Intelligent multi-product support assistant with product-scoped RAG, auto-escalation,
           and a full admin control center — built for your internal operations.
         </p>
-        <div style={S.heroActions}>
+        <div style={S.heroActions} className="landing-hero-actions">
           <Link href="/login" style={{ ...S.btnPrimary, ...S.btnLg }}>Access Client Portal</Link>
           <Link href="/admin"  style={{ ...S.btnGhost,   ...S.btnLg }}>Admin Dashboard →</Link>
         </div>
-        <div style={S.heroStats}>
+        <div style={S.heroStats} className="landing-hero-stats">
           {[['3','Portals'],['RAG','Product-Scoped'],['Auto','Escalation'],['RBAC','Enforced']].map(([v,l]) => (
             <div key={l} style={{ textAlign: 'center' }}>
-              <div style={S.statVal}>{v}</div>
-              <div style={S.statLabel}>{l}</div>
+              <div style={S.statVal} className="landing-stat-val">{v}</div>
+              <div style={S.statLabel} className="landing-stat-label">{l}</div>
             </div>
           ))}
         </div>
       </section>
 
-      <section id="features" style={S.section}>
+      <section id="features" style={S.section} className="landing-section">
         <div style={S.sectionInner}>
           <div style={S.sectionLabel}>Platform Capabilities</div>
           <h2 style={S.sectionTitle}>Everything your support team needs</h2>
           <p style={S.sectionSubtitle}>From public chatbot to admin diagnostics — all powered by your internal knowledge base.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: '1.25rem', marginTop: '3.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: '1.25rem', marginTop: '3.5rem' }} className="landing-features-grid">
             {features.map(f => (
               <div key={f.title} style={S.featureCard}>
                 <div style={{ ...S.featureIcon, background: f.bg }}>{f.icon}</div>
@@ -288,8 +321,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="how-it-works" style={{ ...S.section, background: 'var(--card)' }}>
-        <div style={{ ...S.sectionInner, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'start' }}>
+      <section id="how-it-works" style={{ ...S.section, background: 'var(--card)' }} className="landing-section">
+        <div style={{ ...S.sectionInner, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'start' }} className="landing-how-grid">
           <div>
             <div style={S.sectionLabel}>The Flow</div>
             <h2 style={S.sectionTitle}>How it works end-to-end</h2>
@@ -310,12 +343,12 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="portals" style={S.section}>
+      <section id="portals" style={S.section} className="landing-section">
         <div style={S.sectionInner}>
           <div style={S.sectionLabel}>Three Portals</div>
           <h2 style={S.sectionTitle}>One platform, three interfaces</h2>
           <p style={S.sectionSubtitle}>Each portal has strict RBAC and its own n8n workflow.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: '1.5rem', marginTop: '3.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: '1.5rem', marginTop: '3.5rem' }} className="landing-portals-grid">
             {portals.map(p => (
               <div key={p.title} style={S.portalCard}>
                 <div style={{ display:'inline-flex', alignItems:'center', padding:'0.25rem 0.75rem', borderRadius:100, fontSize:'0.75rem', fontWeight:600, textTransform:'uppercase' as const, marginBottom:'1.25rem', ...p.tagStyle }}>{p.tag}</div>
@@ -334,11 +367,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="chat" style={S.section}>
+      <section id="chat" style={S.section} className="landing-section">
         <div style={{ textAlign:'center', marginBottom:'3rem', ...S.z1 }}>
           <div style={S.sectionLabel}>Try It Now</div>
           <h2 style={S.sectionTitle}>Ask anything about our platform</h2>
-          <p style={{ ...S.sectionSubtitle, margin:'0 auto' }}>This is the public chatbot — general questions only. Sign in for product-specific support.</p>
+          <p style={{ ...S.sectionSubtitle, margin:'0 auto' }}>Get instant answers about our products, pricing, and platform. Sign in for product-specific support.</p>
         </div>
         <div style={S.chatContainer}>
           <div style={S.chatHeader}>
@@ -354,7 +387,7 @@ export default function LandingPage() {
             <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)' }}>Public Chat</div>
           </div>
 
-          <div ref={chatBoxRef} style={S.chatMessages}>
+          <div ref={chatBoxRef} style={S.chatMessages} className="landing-chat-msgs">
             {messages.map((m, i) => (
               <div key={i} style={{ ...( m.role === 'ai' ? S.msgAi : S.msgUser ), animation: 'fadeIn 0.3s ease' }}>
                 <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: m.role === 'ai' ? 'linear-gradient(135deg,var(--primary),var(--chart-2))' : 'color-mix(in srgb, var(--foreground) 10%, transparent)' }}>{m.role === 'ai' ? <Bot size={14} color="white" /> : <User size={14} style={{ color:'var(--muted-foreground)' }} />}</div>
@@ -375,13 +408,23 @@ export default function LandingPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div style={{ padding:'1rem 1.5rem 1.5rem', display:'flex', gap:12, alignItems:'flex-end' }}>
+          <div style={{ padding:'0 1.5rem' }} className="landing-chat-chips">
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:'0.75rem' }}>
+              {['Pricing', 'How ScalePods works', 'Book a demo'].map(chip => (
+                <button key={chip} onClick={() => sendMessage(chip)} style={{ padding:'0.375rem 0.75rem', borderRadius:9999, border:'1px solid var(--border)', background:'var(--background)', color:'var(--muted-foreground)', fontSize:'0.8rem', cursor:'pointer', transition:'all 0.15s' }}
+                  onMouseEnter={e => { (e.target as HTMLElement).style.borderColor = 'var(--primary)'; (e.target as HTMLElement).style.color = 'var(--primary)' }}
+                  onMouseLeave={e => { (e.target as HTMLElement).style.borderColor = 'var(--border)'; (e.target as HTMLElement).style.color = 'var(--muted-foreground)' }}
+                >{chip}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding:'0 1.5rem 1.5rem', display:'flex', gap:12, alignItems:'flex-end' }} className="landing-chat-input-row">
             <textarea
               style={S.chatInput}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-              placeholder="Ask a general question about our platform..."
+              placeholder="Ask about products, pricing, or how ScalePods works..."
               rows={1}
             />
             <button style={S.sendBtn} onClick={() => sendMessage()}>
@@ -391,18 +434,18 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section style={{ ...S.section, textAlign: 'center' }}>
-        <div style={S.ctaCard}>
+      <section style={{ ...S.section, textAlign: 'center' }} className="landing-section">
+        <div style={S.ctaCard} className="landing-cta-card">
           <h2 style={{ fontFamily:'Inter,sans-serif', fontSize:'2rem', fontWeight:700, marginBottom:'1rem' }}>Ready to get started?</h2>
           <p style={{ color:'var(--muted-foreground)', marginBottom:'2rem' }}>Sign in to the client portal or head to the admin dashboard to configure your products.</p>
-          <div style={{ display:'flex', gap:'1rem', justifyContent:'center', flexWrap:'wrap' as const }}>
+          <div style={{ display:'flex', gap:'1rem', justifyContent:'center', flexWrap:'wrap' as const }} className="landing-cta-actions">
             <Link href="/login" style={{ ...S.btnPrimary, ...S.btnLg }}>Client Portal</Link>
             <Link href="/admin"  style={{ ...S.btnGhost,  ...S.btnLg }}>Admin Dashboard</Link>
           </div>
         </div>
       </section>
 
-      <footer style={{ position:'relative', zIndex:1, borderTop:'1px solid var(--border)', padding:'2rem 1.5rem', textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem' }}>
+      <footer style={{ position:'relative', zIndex:1, borderTop:'1px solid var(--border)', padding:'2rem 1.5rem', textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem' }} className="landing-footer">
         SupportAI — Internal AI Support Platform &nbsp;·&nbsp; Built with n8n + Supabase + pgvector &nbsp;·&nbsp;
         <Link href="/admin" style={{ color:'var(--primary)', textDecoration:'none' }}>Admin</Link>
       </footer>
