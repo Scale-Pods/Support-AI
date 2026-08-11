@@ -77,7 +77,16 @@ export default function ProductsPage() {
 
   return (
     <div style={S.page}>
-      <div style={S.topbar}>
+      <style>{`
+        @media (max-width: 768px) {
+          .p-scroll { padding: 1rem !important; }
+          .p-topbar { padding: 0 1rem !important; }
+          .p-head { flex-wrap: wrap !important; }
+          .p-create { flex-wrap: wrap !important; }
+          .p-create input { max-width: 100% !important; flex: 1 1 100% !important; }
+        }
+      `}</style>
+      <div className="p-topbar" style={S.topbar}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <Link href="/admin" style={{ fontSize:'0.8375rem', color:'var(--muted-foreground)', textDecoration:'none' }}>&larr; Dashboard</Link>
         </div>
@@ -85,9 +94,11 @@ export default function ProductsPage() {
           {theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}
         </button>
       </div>
-      <div style={S.scroll}>
-        <h1 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.1rem', fontWeight:600, marginBottom:'1.5rem', color:'var(--foreground)' }}>Products</h1>
-        <div style={{ display:'flex', gap:'0.75rem', marginBottom:'1.75rem' }}>
+      <div className="p-scroll" style={S.scroll}>
+        <div className="p-head" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+          <h1 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.1rem', fontWeight:600, color:'var(--foreground)' }}>Products</h1>
+        </div>
+        <div className="p-create" style={{ display:'flex', gap:'0.75rem', marginBottom:'1.75rem' }}>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Product name" style={{ ...S.fInput, flex:1, maxWidth:320 }} />
           <button onClick={createProduct} disabled={loading} style={{ ...S.btnPrimary, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>{loading ? 'Creating...' : 'Create Product'}</button>
         </div>

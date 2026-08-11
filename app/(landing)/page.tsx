@@ -446,7 +446,7 @@ export default function LandingPage() {
       </section>
 
       <footer style={{ position:'relative', zIndex:1, borderTop:'1px solid var(--border)', padding:'2rem 1.5rem', textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem' }} className="landing-footer">
-        SupportAI — Internal AI Support Platform &nbsp;·&nbsp; Built with n8n + Supabase + pgvector &nbsp;·&nbsp;
+        SupportAI — Internal AI Support Platform &nbsp;·&nbsp;
         <Link href="/admin" style={{ color:'var(--primary)', textDecoration:'none' }}>Admin</Link>
       </footer>
     </div>

@@ -21,8 +21,8 @@ const S: Record<string, React.CSSProperties> = {
   scroll:    { padding:'1.75rem' },
   th:        { textAlign:'left', padding:'0.75rem 0.875rem', color:'var(--muted-foreground)', fontWeight:600, fontSize:'0.65rem', textTransform:'uppercase', letterSpacing:'0.08em', borderBottom:'1px solid rgba(255,255,255,0.06)' },
   td:        { padding:'0.75rem 0.875rem', borderBottom:'1px solid rgba(255,255,255,0.03)', color:'var(--muted-foreground)', verticalAlign:'middle', fontSize:'0.8125rem' },
-  tdLabel:   { padding:'0.75rem 0.875rem', borderBottom:'1px solid rgba(255,255,255,0.03)', color:'var(--foreground)', verticalAlign:'middle', fontSize:'0.8125rem' },
-  table:     { width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem', minWidth:500 },
+  tdLabel:   { padding:'0.75rem 0.875rem', borderBottom:'1px solid rgba(255,255,255,0.03)', color:'var(--foreground)', verticalAlign:'middle', fontSize:'0.8375rem', fontWeight:600 },
+  table:     { width:'100%', borderCollapse:'collapse', fontSize:'0.8125rem', minWidth:520 },
 }
 
 export default function WorkflowsPage() {
@@ -69,7 +69,16 @@ export default function WorkflowsPage() {
 
   return (
     <div style={S.page}>
-      <div style={S.topbar}>
+      <style>{`
+        .wf-table tbody tr { transition: background 0.15s; }
+        .wf-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+        @media (max-width: 768px) {
+          .wf-scroll { padding: 1rem !important; }
+          .wf-topbar { padding: 0 1rem !important; }
+          .wf-head { flex-wrap: wrap !important; gap: 0.75rem !important; }
+        }
+      `}</style>
+      <div className="wf-topbar" style={S.topbar}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <Link href="/admin" style={{ fontSize:'0.8375rem', color:'var(--muted-foreground)', textDecoration:'none' }}>&larr; Dashboard</Link>
         </div>
@@ -77,8 +86,8 @@ export default function WorkflowsPage() {
           {theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}
         </button>
       </div>
-      <div style={S.scroll}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.75rem' }}>
+      <div className="wf-scroll" style={S.scroll}>
+        <div className="wf-head" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.75rem' }}>
           <h1 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.1rem', fontWeight:600, color:'var(--foreground)' }}>Workflows</h1>
           <button onClick={syncNow} disabled={syncing} style={{ ...S.btnPrimary, opacity:syncing?0.6:1, cursor:syncing?'not-allowed':'pointer' }}>
             {syncing ? 'Syncing...' : 'Sync Now'}
@@ -86,7 +95,7 @@ export default function WorkflowsPage() {
         </div>
         {syncError && <div style={{ padding:'0.75rem 1rem', borderRadius:8, background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', color:'var(--destructive)', fontSize:'0.8rem', marginBottom:'1rem' }}>{syncError}</div>}
         {syncInfo && <div style={{ padding:'0.75rem 1rem', borderRadius:8, background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.2)', color:'var(--chart-1)', fontSize:'0.8rem', marginBottom:'1rem' }}>{syncInfo}</div>}
-        <div style={{ overflowX:'auto' }}>
+        <div className="wf-table" style={{ overflowX:'auto' }}>
           <table style={S.table}>
             <thead><tr>
               <th style={S.th}>Name</th><th style={S.th}>Path</th><th style={S.th}>Active in n8n</th><th style={S.th}>Status</th><th style={S.th}>Action</th>
@@ -97,7 +106,15 @@ export default function WorkflowsPage() {
                   <td style={S.tdLabel}>{w.name}</td>
                   <td style={{ ...S.td, fontFamily:'monospace', fontSize:'0.75rem' }}>{w.webhook_path || '\u2014'}</td>
                   <td style={S.td}>{w.is_active ? <CheckCircle2 size={16} color="var(--chart-1)"/> : <XCircle size={16} color="var(--muted-foreground)"/>}</td>
-                  <td style={S.td}>{w.status}</td>
+                  <td style={S.td}>
+                    <span style={{
+                      display:'inline-flex', alignItems:'center', gap:6, padding:'0.25rem 0.625rem', borderRadius:100,
+                      fontSize:'0.7rem', fontWeight:600, textTransform:'capitalize', whiteSpace:'nowrap',
+                      background: w.status === 'published' ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
+                      border: `1px solid ${w.status === 'published' ? 'rgba(34,197,94,0.25)' : 'rgba(234,179,8,0.25)'}`,
+                      color: w.status === 'published' ? 'var(--chart-1)' : '#eab308',
+                    }}>{w.status || 'draft'}</span>
+                  </td>
                   <td style={S.td}>
                     <button onClick={() => togglePublish(w.id, w.status)}
                       style={{ background:'none', border:'none', color:'var(--muted-foreground)', cursor:'pointer', fontSize:'0.75rem', textDecoration:'underline', fontFamily:'Inter,sans-serif' }}>

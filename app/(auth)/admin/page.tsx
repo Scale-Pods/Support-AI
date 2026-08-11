@@ -8,13 +8,13 @@ import BgOrbs from '@/components/BgOrbs'
 import Badge, { statusBadge, priorityBadge, catBadge, confBadge, severityBadge } from '@/components/Badge'
 import { createClient } from '@/lib/supabase'
 import { N8N_BASE } from '@/lib/supabase'
-import type { Ticket, Escalation, AuditLog, Product } from '@/lib/types'
+import type { Ticket, Escalation, AuditLog, Product, Message, Session } from '@/lib/types'
 import {
   LayoutDashboard, ScrollText, Ticket as TicketIcon, AlertTriangle,
   Package, Upload, Users, Home, User, MessageSquare, Target,
   AlertOctagon, Box, RefreshCw, Menu, Sun, Moon, LogOut,
   Check, X, ChevronDown, Globe, Plus, Link2, FileText,
-  File, CheckCircle2, CloudUpload, Loader2,
+  File, CheckCircle2, CloudUpload, Loader2, Headphones,
 } from 'lucide-react'
 
 type View = 'dashboard'|'tickets'|'escalations'|'products'|'ingest'|'audit'|'users'|'errors'
@@ -22,6 +22,36 @@ type View = 'dashboard'|'tickets'|'escalations'|'products'|'ingest'|'audit'|'use
 function fmtDate(d: string) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+}
+
+function isLocked(s: string | undefined | null) {
+  return s === 'resolved' || s === 'closed'
+}
+
+function ReplyBar(props: { replyText: string; onReplyChange: (v: string) => void; onSend: () => void; sending: boolean; locked: boolean; lockedLabel: string }) {
+  return (
+    <>
+      <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:'1rem', paddingTop:'0.875rem', borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+        <textarea
+          rows={2}
+          value={props.replyText}
+          disabled={props.locked}
+          onChange={e => props.onReplyChange(e.target.value)}
+          onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); props.onSend() } }}
+          placeholder={props.locked ? 'Ticket resolved — replies are disabled' : 'Reply to the client as a support agent…'}
+          style={{ flex:1, padding:'0.625rem 0.75rem', minHeight:42, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, color:'var(--foreground)', fontFamily:'Inter,sans-serif', fontSize:'0.8125rem', resize:'none', outline:'none', ...(props.locked ? { opacity:0.5, cursor:'not-allowed' } : {}) }}
+        />
+        <button onClick={props.onSend} disabled={props.sending || props.locked} style={{ ...S.btnPrimary, flexShrink:0, opacity: (props.sending || props.locked) ? 0.6 : 1, cursor: (props.sending || props.locked) ? 'not-allowed' : 'pointer' }}>
+          {props.sending ? 'Sending…' : 'Send'}
+        </button>
+      </div>
+      {props.locked && (
+        <div style={{ marginTop:'0.625rem', fontSize:'0.75rem', color:'var(--chart-1)', display:'flex', alignItems:'center', gap:6 }}>
+          <CheckCircle2 size={14} /> {props.lockedLabel}
+        </div>
+      )}
+    </>
+  )
 }
 
 const S: Record<string, React.CSSProperties> = {
@@ -42,19 +72,16 @@ const S: Record<string, React.CSSProperties> = {
   topbar:     { height:60, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.75rem', borderBottom:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.008)' },
   topbarTitle:{ fontFamily:'Inter,sans-serif', fontSize:'0.95rem', fontWeight:600, color:'var(--foreground)' },
   scroll:     { flex:1, overflowY:'auto', padding:'1.75rem' },
-  scrollCls:  'admin-scroll',
   vHeader:    { marginBottom:'1.75rem' },
   btnGhost:   { display:'inline-flex', alignItems:'center', gap:6, padding:'0.4375rem 0.875rem', borderRadius:8, fontSize:'0.8rem', fontWeight:600, cursor:'pointer', border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color:'var(--muted-foreground)', fontFamily:'Inter,sans-serif', transition:'all 0.2s ease' },
   btnPrimary: { display:'inline-flex', alignItems:'center', gap:6, padding:'0.5rem 1rem', borderRadius:8, fontSize:'0.8rem', fontWeight:600, cursor:'pointer', border:'none', background:'linear-gradient(135deg,var(--chart-2),var(--primary))', color:'#fff', fontFamily:'Inter,sans-serif', boxShadow:'0 4px 14px rgba(139,92,246,0.25)', transition:'all 0.2s ease' },
   btnSuccess: { display:'inline-flex', alignItems:'center', gap:6, padding:'0.3125rem 0.625rem', borderRadius:6, fontSize:'0.75rem', fontWeight:600, cursor:'pointer', border:'1px solid rgba(34,197,94,0.2)', background:'rgba(34,197,94,0.08)', color:'var(--chart-1)', fontFamily:'Inter,sans-serif' },
   btnDanger:  { display:'inline-flex', alignItems:'center', gap:6, padding:'0.3125rem 0.625rem', borderRadius:6, fontSize:'0.75rem', fontWeight:600, cursor:'pointer', border:'1px solid rgba(239,68,68,0.2)', background:'rgba(239,68,68,0.08)', color:'var(--destructive)', fontFamily:'Inter,sans-serif' },
   statsGrid:  { display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem', marginBottom:'1.75rem' },
-  statsGridCls: 'admin-stats-grid',
   statCard:   { background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:16, padding:'1.25rem', backdropFilter:'blur(16px)', transition:'all 0.2s ease' },
   statLabel:  { fontSize:'0.7rem', fontWeight:500, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em' },
   statValue:  { fontFamily:'Inter,sans-serif', fontSize:'1.75rem', fontWeight:700, margin:'0.75rem 0 0.25rem', letterSpacing:'-0.02em' },
   dashGrid:   { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.25rem' },
-  dashGridCls: 'admin-dash-grid',
   card:       { background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:16, overflow:'hidden' },
   cardHeader: { padding:'1rem 1.25rem', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', justifyContent:'space-between' },
   cardTitle:  { fontFamily:'Inter,sans-serif', fontSize:'0.9rem', fontWeight:600, color:'var(--foreground)' },
@@ -104,6 +131,12 @@ export default function AdminDashboard() {
   const [openTicketCount, setOpenTicketCount] = useState(0)
   const [selectedTicket, setSelectedTicket]   = useState<Ticket|null>(null)
   const [modalTeam, setModalTeam]     = useState('')
+  const [selectedEscalation, setSelectedEscalation] = useState<Escalation|null>(null)
+  const [escalationDetail, setEscalationDetail] = useState<{ msgs: Message[]; ticket: Ticket|null; session: Session|null; user: { full_name: string|null; email: string|null }|null } | null>(null)
+  const [ticketDetail, setTicketDetail] = useState<{ msgs: Message[]; session: Session|null; user: { full_name: string|null; email: string|null }|null; escs: Escalation[] } | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [ingestProduct, setIngestProduct]   = useState('')
   const [ingestType, setIngestType]         = useState('faq')
   const [ingestTitle, setIngestTitle]       = useState('')
@@ -123,6 +156,8 @@ export default function AdminDashboard() {
   const [createProductLoading, setCreateProductLoading] = useState(false)
   const [workflowErrors, setWorkflowErrors] = useState<any[]>([])
   const [expandedError, setExpandedError] = useState<string|null>(null)
+  const [checkingId, setCheckingId] = useState<string|null>(null)
+  const [checkStatus, setCheckStatus] = useState<Record<string,string>>({})
   const [dashLoading, setDashLoading] = useState(false)
   const supabase = createClient()
 
@@ -210,19 +245,127 @@ export default function AdminDashboard() {
 
   async function updateTicketStatus(id: string, status: string) {
     await supabase.from('tickets').update({ status, ...(status==='resolved'?{resolved_at:new Date().toISOString()}:{}) }).eq('id', id)
-    loadTickets(); setSelectedTicket(null)
+    setActiveSessionId(null); setReplyText(''); loadTickets(); setSelectedTicket(null)
   }
 
   async function saveTicketTeam() {
     if (!selectedTicket) return
     await supabase.from('tickets').update({ assigned_team: modalTeam }).eq('id', selectedTicket.id)
-    setSelectedTicket(null); loadTickets()
+    setActiveSessionId(null); setReplyText(''); setSelectedTicket(null); loadTickets()
   }
 
   async function loadEscalations() {
     const { data } = await supabase.from('escalations').select('*').order('created_at', { ascending: false }).limit(50)
     setEscalations((data || []) as Escalation[])
   }
+
+  function dedupeMessages(msgs: Message[]): Message[] {
+    return msgs.filter((m, i) => i === 0 || !(msgs[i-1].sender === m.sender && msgs[i-1].content === m.content))
+  }
+
+  async function openEscalation(e: Escalation) {
+    setSelectedEscalation(e)
+    setEscalationDetail(null)
+    const ticketRes = e.ticket_id ? await supabase.from('tickets').select('*').eq('id', e.ticket_id).maybeSingle() : null
+    const ticket = ticketRes?.data as Ticket | null
+    const sid = e.session_id || ticket?.session_id
+    if (!sid) { setEscalationDetail({ msgs: [], ticket, session: null, user: null }); return }
+    setActiveSessionId(sid)
+    const [msgsRes, sessRes] = await Promise.all([
+      supabase.from('public_messages').select('*').eq('session_id', sid).order('created_at', { ascending: true }),
+      supabase.from('public_sessions').select('*').eq('id', sid).maybeSingle()
+    ])
+    const msgs = dedupeMessages(((msgsRes.data || []) as Message[]).filter(m => !!m.content))
+    const session = (sessRes.data as Session | null) || null
+    let user: { full_name: string|null; email: string|null } | null = null
+    const uid = session?.user_id
+    if (uid && uid !== 'anonymous') {
+      const { data } = await supabase.from('users').select('full_name, email').eq('id', uid).maybeSingle()
+      user = data as { full_name: string|null; email: string|null } | null
+    }
+    setEscalationDetail({ msgs, ticket, session, user })
+  }
+
+  async function openTicket(t: Ticket) {
+    setSelectedTicket(t)
+    setModalTeam(t.assigned_team||'engineering')
+    setTicketDetail(null)
+    if (!t.session_id) return
+    setActiveSessionId(t.session_id)
+    const [msgsRes, sessRes, escRes] = await Promise.all([
+      supabase.from('public_messages').select('*').eq('session_id', t.session_id).order('created_at', { ascending: true }),
+      supabase.from('public_sessions').select('*').eq('id', t.session_id).maybeSingle(),
+      supabase.from('escalations').select('*').or(`ticket_id.eq.${t.id},session_id.eq.${t.session_id}`).order('created_at', { ascending: true })
+    ])
+    const msgs = dedupeMessages(((msgsRes.data || []) as Message[]).filter(m => !!m.content))
+    const escs = ((escRes.data || []) as Escalation[]).filter(e => e.reason !== 'user_requested' || !!e.client_reason)
+    const session = (sessRes.data as Session | null) || null
+    let user: { full_name: string|null; email: string|null } | null = null
+    const uid = session?.user_id
+    if (uid && uid !== 'anonymous') {
+      const { data } = await supabase.from('users').select('full_name, email').eq('id', uid).maybeSingle()
+      user = data as { full_name: string|null; email: string|null } | null
+    }
+    setTicketDetail({ msgs, user, escs, session })
+  }
+
+  async function sendAgentReply() {
+    const text = replyText.trim()
+    const sid = activeSessionId
+    const locked =
+      (selectedTicket && isLocked(selectedTicket.status)) ||
+      (selectedEscalation && escalationDetail?.ticket && isLocked(escalationDetail.ticket.status))
+    if (!text || !sid || replySending || locked) return
+    setReplySending(true)
+    const ownerId = (ticketDetail?.session?.user_id || escalationDetail?.session?.user_id) as string | undefined
+    const { data, error } = await supabase
+      .from('public_messages')
+      .insert({
+        session_id: sid,
+        user_id: ownerId ?? null,
+        sender: 'agent',
+        content: text,
+        message: text,
+        should_escalate: 'false'
+      })
+      .select('id, created_at')
+      .single()
+    setReplySending(false)
+    if (error) { console.error('Failed to send reply:', error.message); return }
+    const newMsg: Message = {
+      id: data?.id ?? 'agent-' + Date.now(),
+      session_id: sid,
+      sender: 'agent',
+      content: text,
+      created_at: data?.created_at ?? new Date().toISOString()
+    }
+    setReplyText('')
+    if (ticketDetail) setTicketDetail(d => d && ({ ...d, msgs: dedupeMessages([...d.msgs, newMsg].filter(x => !!x.content)) }))
+    if (escalationDetail) setEscalationDetail(d => d && ({ ...d, msgs: dedupeMessages([...d.msgs, newMsg].filter(x => !!x.content)) }))
+  }
+
+  useEffect(() => {
+    if (!activeSessionId) return
+    const channel = supabase
+      .channel('admin-live-' + activeSessionId)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'public_messages',
+        filter: `session_id=eq.${activeSessionId}`
+      }, (payload) => {
+        const row = payload.new as Message
+        if (row.sender !== 'user' || !row.content) return
+        setTicketDetail(d => !d || d.msgs.some(x => x.id === row.id)
+          ? d
+          : ({ ...d, msgs: dedupeMessages([...d.msgs, row].filter(x => !!x.content)) }))
+        setEscalationDetail(d => !d || d.msgs.some(x => x.id === row.id)
+          ? d
+          : ({ ...d, msgs: dedupeMessages([...d.msgs, row].filter(x => !!x.content)) }))
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [activeSessionId, supabase])
 
   async function loadAuditLogs() {
     const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100)
@@ -259,7 +402,7 @@ export default function AdminDashboard() {
 
   async function loadErrors() {
     const { data: errors } = await supabase.from('workflow_errors')
-      .select('id, workflow_name, error_message, ai_diagnosis, ai_fix, execution_id, client_product_id, resolved, status, created_at, error_stack, failed_node, severity, webhook_path, has_webhook')
+      .select('id, workflow_name, error_message, ai_diagnosis, ai_fix, execution_id, client_product_id, resolved, status, created_at, error_stack, failed_node, severity, webhook_path, has_webhook, ai_resolution_diagnosis, replay_attempts, last_checked_at')
       .order('created_at', { ascending: false }).limit(100)
     if (!errors || errors.length === 0) { setWorkflowErrors([]); return }
     const productIds = [...new Set(errors.map((e: any) => e.client_product_id).filter(Boolean))]
@@ -284,6 +427,49 @@ export default function AdminDashboard() {
       client_email: userMap[e.client_product_id]?.email || '—',
     }))
     setWorkflowErrors(enriched)
+  }
+
+  async function runResolutionCheck(e: any) {
+    setCheckingId(e.id)
+    setCheckStatus(s => ({ ...s, [e.id]: 'Triggering check…' }))
+    try {
+      const res = await fetch('/api/admin/check-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        setCheckStatus(s => ({ ...s, [e.id]: `Failed to start check: ${data.error || res.status}` }))
+        setCheckingId(null)
+        return
+      }
+    } catch (err) {
+      setCheckStatus(s => ({ ...s, [e.id]: `Network error: ${err instanceof Error ? err.message : String(err)}` }))
+      setCheckingId(null)
+      return
+    }
+    setCheckStatus(s => ({ ...s, [e.id]: 'Check started — diagnosing…' }))
+    let attempts = 0
+    const timer = setInterval(async () => {
+      attempts++
+      const { data: row } = await supabase.from('workflow_errors')
+        .select('id, status, resolved, ai_resolution_diagnosis, replay_attempts, last_checked_at')
+        .eq('id', e.id)
+        .maybeSingle()
+      if (row) {
+        const isResolved = row.resolved === true || row.resolved === 'true' || row.status === 'resolved'
+        setWorkflowErrors(list => list.map(x => x.id === row.id ? { ...x, ...row, resolved: isResolved } : x))
+        const diag = (row.ai_resolution_diagnosis || '').trim()
+        if (diag) {
+          setCheckStatus(s => ({ ...s, [e.id]: (isResolved ? 'Resolved — ' : 'Not resolved — ') + diag }))
+          clearInterval(timer)
+          setCheckingId(null)
+          return
+        }
+      }
+      if (attempts >= 10) {
+        setCheckStatus(s => ({ ...s, [e.id]: 'Check finished — no new diagnosis recorded yet. Click again or Refresh to re-check.' }))
+        clearInterval(timer)
+        setCheckingId(null)
+      }
+    }, 5000)
   }
 
   async function loadKBDocs() {
@@ -604,6 +790,8 @@ export default function AdminDashboard() {
       .admin-sidebar-overlay { display: none !important; position: fixed; inset:0; z-index:105; background:rgba(0,0,0,0.5); backdrop-filter:blur(4px); }
       .admin-sidebar-overlay.visible { display: block !important; }
       .admin-scroll table { min-width: 600px; }
+      .admin-scroll tbody tr { transition: background 0.15s; }
+      .admin-scroll tbody tr:hover { background: rgba(255,255,255,0.03); }
       @media (max-width: 768px) {
         .admin-sidebar { transform: translateX(-100%); position: fixed !important; z-index: 110 !important; transition: transform 0.3s ease; }
         .admin-sidebar.open { transform: translateX(0); }
@@ -627,11 +815,11 @@ export default function AdminDashboard() {
 
       {/* TICKET MODAL */}
       {selectedTicket && (
-        <div style={S.modal} onClick={e=>e.target===e.currentTarget&&setSelectedTicket(null)}>
-          <div style={S.modalInner}>
+        <div style={S.modal} onClick={e=>e.target===e.currentTarget&&(setSelectedTicket(null), setActiveSessionId(null))}>
+          <div style={{ ...S.modalInner, maxWidth:680 }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
               <div style={S.modalTitle}>Ticket #{selectedTicket.id.substr(0,8)}</div>
-              <div style={{ width:30, height:30, borderRadius:'50%', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>setSelectedTicket(null)}><X size={14} /></div>
+              <div style={{ width:30, height:30, borderRadius:'50%', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>{setSelectedTicket(null); setActiveSessionId(null)}}><X size={14} /></div>
             </div>
             {[['Title',selectedTicket.title],['Description',selectedTicket.description||'—']].map(([l,v])=>(
               <div key={l} style={{ marginBottom:'1rem' }}>
@@ -646,16 +834,189 @@ export default function AdminDashboard() {
               <div><div style={S.mFieldLabel}>Admin Only</div><Badge variant="purple">Hidden from client</Badge></div>
             </div>
             <div style={{ marginBottom:'1rem' }}>
+              <div style={S.mFieldLabel}>Client</div>
+              <div style={S.mFieldVal}>{ticketDetail?.user?.full_name || ticketDetail?.user?.email || '—'}</div>
+              {ticketDetail?.user?.email && <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)' }}>{ticketDetail.user.email}</div>}
+            </div>
+            <div style={{ marginBottom:'1rem' }}>
               <div style={S.mFieldLabel}>Update Team</div>
               <select style={{ ...S.fSelect, marginTop:6, marginBottom:0 }} value={modalTeam} onChange={e=>setModalTeam(e.target.value)}>
                 {['engineering','product','ops','finance','support'].map(t=><option key={t} value={t} style={{ background:'var(--card)', color:'var(--foreground)' }}>{t}</option>)}
               </select>
             </div>
+
+            {/* Why the client escalated */}
+            {ticketDetail && ticketDetail.escs.length > 0 && (
+              <div style={{ background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.18)', borderRadius:12, padding:'1rem 1.125rem', marginBottom:'1.25rem' }}>
+                <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--destructive)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Why they escalated</div>
+                {ticketDetail.escs.map((e) => (
+                  <div key={e.id} style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:'0.9375rem', fontWeight:700, color:'var(--foreground)', marginBottom:4 }}>
+                      {e.client_reason || (e.reason === 'auto_threshold' ? 'Low confidence response (auto-escalated)' : e.reason || 'Not specified')}
+                    </div>
+                    {e.client_note && <div style={{ fontSize:'0.8125rem', color:'var(--muted-foreground)', lineHeight:1.6, marginBottom:4 }}>“{e.client_note}”</div>}
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <Badge variant={e.triggered_by==='system'?'blue':'purple'}>{e.triggered_by||'—'}</Badge>
+                      {e.confidence_at_trigger!=null && <Badge variant={confBadge(e.confidence_at_trigger)}>{Math.round(e.confidence_at_trigger*100)}% confidence</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Full chat transcript */}
+            <div style={{ marginBottom:'0.625rem', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Full Chat Transcript</div>
+              <span style={{ fontSize:'0.7rem', color:'var(--muted-foreground)' }}>{ticketDetail?.msgs?.length || 0} messages</span>
+            </div>
+            <div style={{ maxHeight:300, overflowY:'auto', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'1rem', display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+              {!ticketDetail ? (
+                <div style={{ textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem', padding:'2rem 0' }}>Loading transcript…</div>
+              ) : ticketDetail.msgs.length === 0 ? (
+                <div style={{ textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem', padding:'2rem 0' }}>No messages stored for this session.</div>
+              ) : ticketDetail.msgs.map((m) => (
+                <div key={m.id} style={{ display:'flex', gap:10, alignItems:'flex-start', maxWidth:'80%', alignSelf: m.sender === 'user' ? 'flex-end' : 'flex-start', justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: m.sender === 'user' ? 'rgba(255,255,255,0.08)' : m.sender === 'agent' ? 'linear-gradient(135deg,var(--chart-1),var(--chart-3))' : 'linear-gradient(135deg,var(--chart-2),var(--primary))', color:'#fff' }}>
+                    {m.sender === 'user' ? <User size={14} /> : m.sender === 'agent' ? <Headphones size={14} /> : <MessageSquare size={14} />}
+                  </div>
+                  <div style={{ maxWidth:'75%' }}>
+                    {m.sender === 'agent' && <div style={{ fontSize:'0.6875rem', color:'var(--chart-1)', marginBottom:2 }}>Support Agent</div>}
+                    <div style={{ padding:'0.625rem 0.875rem', borderRadius:10, fontSize:'0.8125rem', lineHeight:1.6, whiteSpace:'pre-wrap', wordBreak:'break-word', background: m.sender === 'user' ? 'rgba(255,255,255,0.06)' : m.sender === 'agent' ? 'rgba(34,197,94,0.08)' : 'rgba(139,92,246,0.08)', border: m.sender === 'user' ? '1px solid rgba(255,255,255,0.08)' : m.sender === 'agent' ? '1px solid rgba(34,197,94,0.2)' : '1px solid rgba(139,92,246,0.15)' }}>
+                      {m.content}
+                      {Array.isArray(m.files) && m.files.length > 0 && (
+                        <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:6, alignItems:'flex-start' }}>
+                          {m.files.map((f, i) => (f.url || f.data) && f.type?.startsWith('image/') ? (
+                            <img key={i} src={f.url || f.data} alt={f.name} style={{ maxWidth:'100%', maxHeight:240, borderRadius:8, border:'1px solid rgba(255,255,255,0.12)', cursor:'pointer' }} onClick={() => window.open(f.url || f.data, '_blank')} title={f.name} />
+                          ) : (f.url || f.data) ? (
+                            <a key={i} href={f.url || f.data} download={f.name} target={f.url ? '_blank' : undefined} rel="noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.25rem 0.5rem', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:'0.6875rem', textDecoration:'none', color:'inherit' }}><FileText size={11} />{f.name}</a>
+                          ) : (
+                            <span key={i} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.25rem 0.5rem', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:'0.6875rem' }}><FileText size={11} />{f.name}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:'0.6875rem', color:'var(--muted-foreground)', marginTop:4, justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                      {fmtDate(m.created_at)}
+                      {m.category && <Badge variant={catBadge(m.category)}>{m.category}</Badge>}
+                      {m.confidence != null && <Badge variant={confBadge(m.confidence)}>{Math.round(m.confidence*100)}%</Badge>}
+                      {m.should_escalate === 'true' && <Badge variant="red">Escalated</Badge>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <ReplyBar
+              replyText={replyText}
+              onReplyChange={setReplyText}
+              onSend={sendAgentReply}
+              sending={replySending}
+              locked={isLocked(selectedTicket.status)}
+              lockedLabel={`This ticket is marked ${selectedTicket.status} — agent replies are disabled.`}
+            />
             <div style={{ display:'flex', gap:12, marginTop:'1.5rem' }}>
               <button style={S.btnPrimary} onClick={saveTicketTeam}>Save Team</button>
               <button style={S.btnSuccess} onClick={()=>updateTicketStatus(selectedTicket.id,'resolved')}>Mark Resolved</button>
               <button style={S.btnGhost} onClick={()=>setSelectedTicket(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ESCALATION DETAIL MODAL */}
+      {selectedEscalation && (
+        <div style={S.modal} onClick={e=>e.target===e.currentTarget&&(setSelectedEscalation(null), setActiveSessionId(null))}>
+          <div style={{ ...S.modalInner, maxWidth:720 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <AlertTriangle size={16} color="var(--destructive)" />
+                <div style={S.modalTitle}>Escalation</div>
+              </div>
+              <div style={{ width:30, height:30, borderRadius:'50%', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>{setSelectedEscalation(null); setActiveSessionId(null)}}><X size={14} /></div>
+            </div>
+
+            {/* Why the client escalated */}
+            <div style={{ background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.18)', borderRadius:12, padding:'1rem 1.125rem', marginBottom:'1.25rem' }}>
+              <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--destructive)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Why they escalated</div>
+              <div style={{ fontSize:'0.9375rem', fontWeight:700, color:'var(--foreground)', marginBottom: selectedEscalation.client_note ? 6 : 0 }}>
+                {selectedEscalation.client_reason || (selectedEscalation.reason === 'auto_threshold' ? 'Low confidence response (auto-escalated)' : selectedEscalation.reason || 'Not specified')}
+              </div>
+              {selectedEscalation.client_note && <div style={{ fontSize:'0.8125rem', color:'var(--muted-foreground)', lineHeight:1.6 }}>“{selectedEscalation.client_note}”</div>}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1rem' }}>
+              <div><div style={S.mFieldLabel}>Triggered By</div><Badge variant={selectedEscalation.triggered_by==='system'?'blue':'purple'}>{selectedEscalation.triggered_by||'—'}</Badge></div>
+              <div><div style={S.mFieldLabel}>Confidence at Trigger</div><div style={S.mFieldVal}>{selectedEscalation.confidence_at_trigger!=null?Math.round(selectedEscalation.confidence_at_trigger*100)+'%':'—'}</div></div>
+              <div><div style={S.mFieldLabel}>Routed To</div><div style={S.mFieldVal}>{selectedEscalation.routed_to||'—'}</div></div>
+              <div><div style={S.mFieldLabel}>Time</div><div style={S.mFieldVal}>{fmtDate(selectedEscalation.created_at)}</div></div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem', marginBottom:'1.25rem' }}>
+              <div>
+                <div style={S.mFieldLabel}>Client</div>
+                <div style={S.mFieldVal}>{escalationDetail?.user?.full_name || escalationDetail?.user?.email || '—'}</div>
+                {escalationDetail?.user?.email && <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)' }}>{escalationDetail.user.email}</div>}
+              </div>
+              <div>
+                <div style={S.mFieldLabel}>Ticket</div>
+                {escalationDetail?.ticket ? (
+                  <div style={S.mFieldVal}>
+                    <span style={{ fontFamily:'monospace', fontSize:'0.75rem' }}>#{escalationDetail.ticket.id.substr(0,8)}</span>{' '}
+                    <Badge variant={statusBadge(escalationDetail.ticket.status)}>{escalationDetail.ticket.status}</Badge>
+                    <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)', marginTop:2 }}>{escalationDetail.ticket.assigned_team||'unassigned'}</div>
+                  </div>
+                ) : <div style={S.mFieldVal}>No ticket</div>}
+              </div>
+            </div>
+
+            {/* Full transcript */}
+            <div style={{ marginBottom:'0.625rem', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Full Chat Transcript</div>
+              <span style={{ fontSize:'0.7rem', color:'var(--muted-foreground)' }}>{escalationDetail?.msgs?.length || 0} messages</span>
+            </div>
+            <div style={{ maxHeight:320, overflowY:'auto', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:12, padding:'1rem', display:'flex', flexDirection:'column', gap:'0.875rem' }}>
+              {!escalationDetail ? (
+                <div style={{ textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem', padding:'2rem 0' }}>Loading transcript…</div>
+              ) : escalationDetail.msgs.length === 0 ? (
+                <div style={{ textAlign:'center', color:'var(--muted-foreground)', fontSize:'0.8125rem', padding:'2rem 0' }}>No messages stored for this session.</div>
+              ) : escalationDetail.msgs.map((m) => (
+                <div key={m.id} style={{ display:'flex', gap:10, alignItems:'flex-start', maxWidth:'80%', alignSelf: m.sender === 'user' ? 'flex-end' : 'flex-start', justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: m.sender === 'user' ? 'rgba(255,255,255,0.08)' : m.sender === 'agent' ? 'linear-gradient(135deg,var(--chart-1),var(--chart-3))' : 'linear-gradient(135deg,var(--chart-2),var(--primary))', color:'#fff' }}>
+                    {m.sender === 'user' ? <User size={14} /> : m.sender === 'agent' ? <Headphones size={14} /> : <MessageSquare size={14} />}
+                  </div>
+                  <div style={{ maxWidth:'75%' }}>
+                    {m.sender === 'agent' && <div style={{ fontSize:'0.6875rem', color:'var(--chart-1)', marginBottom:2 }}>Support Agent</div>}
+                    <div style={{ padding:'0.625rem 0.875rem', borderRadius:10, fontSize:'0.8125rem', lineHeight:1.6, whiteSpace:'pre-wrap', wordBreak:'break-word', background: m.sender === 'user' ? 'rgba(255,255,255,0.06)' : m.sender === 'agent' ? 'rgba(34,197,94,0.08)' : 'rgba(139,92,246,0.08)', border: m.sender === 'user' ? '1px solid rgba(255,255,255,0.08)' : m.sender === 'agent' ? '1px solid rgba(34,197,94,0.2)' : '1px solid rgba(139,92,246,0.15)' }}>
+                      {m.content}
+                      {Array.isArray(m.files) && m.files.length > 0 && (
+                        <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:6, alignItems:'flex-start' }}>
+                          {m.files.map((f, i) => (f.url || f.data) && f.type?.startsWith('image/') ? (
+                            <img key={i} src={f.url || f.data} alt={f.name} style={{ maxWidth:'100%', maxHeight:240, borderRadius:8, border:'1px solid rgba(255,255,255,0.12)', cursor:'pointer' }} onClick={() => window.open(f.url || f.data, '_blank')} title={f.name} />
+                          ) : (f.url || f.data) ? (
+                            <a key={i} href={f.url || f.data} download={f.name} target={f.url ? '_blank' : undefined} rel="noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.25rem 0.5rem', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:'0.6875rem', textDecoration:'none', color:'inherit' }}><FileText size={11} />{f.name}</a>
+                          ) : (
+                            <span key={i} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'0.25rem 0.5rem', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, fontSize:'0.6875rem' }}><FileText size={11} />{f.name}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:'0.6875rem', color:'var(--muted-foreground)', marginTop:4, justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                      {fmtDate(m.created_at)}
+                      {m.category && <Badge variant={catBadge(m.category)}>{m.category}</Badge>}
+                      {m.confidence != null && <Badge variant={confBadge(m.confidence)}>{Math.round(m.confidence*100)}%</Badge>}
+                      {m.should_escalate === 'true' && <Badge variant="red">Escalated</Badge>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <ReplyBar
+              replyText={replyText}
+              onReplyChange={setReplyText}
+              onSend={sendAgentReply}
+              sending={replySending}
+              locked={!!escalationDetail?.ticket && isLocked(escalationDetail.ticket.status)}
+              lockedLabel={escalationDetail?.ticket ? `Linked ticket is marked ${escalationDetail.ticket.status} — agent replies are disabled.` : 'This ticket is resolved — agent replies are disabled.'}
+            />
           </div>
         </div>
       )}
@@ -842,7 +1203,7 @@ export default function AdminDashboard() {
             {filteredTickets.length === 0
               ? <div style={{ color:'var(--muted-foreground)', textAlign:'center', padding:'3rem', fontSize:'0.875rem' }}>No tickets found.</div>
               : filteredTickets.map(t=>(
-                <div key={t.id} style={S.tktCard} onClick={()=>{setSelectedTicket(t);setModalTeam(t.assigned_team||'engineering')}}>
+                <div key={t.id} style={S.tktCard} onClick={()=>openTicket(t)}>
                   <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
                     <span style={{ fontFamily:'monospace', fontSize:'0.7rem', color:'var(--muted-foreground)' }}>#{t.id.substr(0,8)}</span>
                     <span style={{ fontWeight:600, fontSize:'0.875rem', flex:1 }}>{t.title}</span>
@@ -885,9 +1246,9 @@ export default function AdminDashboard() {
                   {escalations.length===0
                     ? <tr key="empty-escalations"><td colSpan={6} style={{ ...S.td, textAlign:'center', padding:'2rem', color:'var(--muted-foreground)' }}>No escalations yet</td></tr>
                     : escalations.map(e=>(
-                      <tr key={e.id}>
+                      <tr key={e.id} onClick={()=>openEscalation(e)} style={{ cursor:'pointer', transition:'background 0.15s' }} onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.03)'} onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background=''}>
                         <td style={{ ...S.td, fontFamily:'monospace', fontSize:'0.75rem', color:'var(--foreground)' }}>{e.ticket_id?.substr(0,8)}…</td>
-                        <td style={S.td}><Badge variant={e.reason==='low_confidence'?'yellow':'red'}>{e.reason||'—'}</Badge></td>
+                        <td style={S.td}><Badge variant={e.reason==='low_confidence'?'yellow':'red'}>{e.reason||'—'}</Badge>{e.client_reason && <div style={{ fontSize:'0.7rem', color:'var(--destructive)', marginTop:4 }}>{e.client_reason}</div>}</td>
                         <td style={S.td}><Badge variant={e.triggered_by==='system'?'blue':'purple'}>{e.triggered_by||'—'}</Badge></td>
                         <td style={S.td}>{e.confidence_at_trigger!=null?Math.round(e.confidence_at_trigger*100)+'%':'—'}</td>
                         <td style={S.td}>{e.routed_to||'—'}</td>
@@ -1280,6 +1641,18 @@ export default function AdminDashboard() {
                       <div style={{ flex:'0 0 auto' }}>{e.product_name}</div>
                       <div style={{ flex:'0 0 auto' }}>{e.severity ? <Badge variant={severityBadge(e.severity)}>{e.severity}</Badge> : '—'}</div>
                       <div style={{ flex:'0 0 auto' }}>{e.resolved ? <Badge variant="green">Resolved</Badge> : <Badge variant="red">Open</Badge>}</div>
+                      {!e.resolved && (
+                        <button
+                          onClick={ev => { ev.stopPropagation(); runResolutionCheck(e) }}
+                          disabled={checkingId === e.id}
+                          style={{ ...S.btnGhost, flexShrink:0 }}
+                        >
+                          {checkingId === e.id
+                            ? <Loader2 size={14} style={{ animation:'rotate 1s linear infinite' }} />
+                            : <RefreshCw size={14} />}
+                          {checkingId === e.id ? 'Checking…' : 'Check Resolution'}
+                        </button>
+                      )}
                       <div style={{ flex:'0 0 auto', fontSize:'0.75rem', color:'var(--muted-foreground)' }}>{fmtDate(e.created_at)}</div>
                       <div style={{ flex:'0 0 auto', fontSize:'0.75rem', color:'var(--muted-foreground)', transition:'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0)', display:'flex' }}><ChevronDown size={14} /></div>
                     </div>
@@ -1300,6 +1673,13 @@ export default function AdminDashboard() {
                         {e.error_stack && <div style={{ marginTop:'0.875rem' }}>
                           <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Stack Trace</div>
                           <pre style={{ fontSize:'0.75rem', color:'var(--muted-foreground)', background:'rgba(255,255,255,0.03)', padding:'0.75rem', borderRadius:8, overflow:'auto', whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>{e.error_stack}</pre>
+                        </div>}
+                        {(checkStatus[e.id] || e.ai_resolution_diagnosis) && <div style={{ marginTop:'0.875rem' }}>
+                          <div style={{ fontSize:'0.7rem', fontWeight:600, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Resolution Check</div>
+                          <div style={{ fontSize:'0.8125rem', color:'var(--foreground)', lineHeight:1.6, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{checkStatus[e.id] || e.ai_resolution_diagnosis}</div>
+                          {Number(e.replay_attempts) > 0 && (
+                            <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)', marginTop:6 }}>Replay attempts: {e.replay_attempts}{e.last_checked_at ? ` · Last checked ${fmtDate(e.last_checked_at)}` : ''}</div>
+                          )}
                         </div>}
                       </div>
                     )}

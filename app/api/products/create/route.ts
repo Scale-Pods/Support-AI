@@ -29,5 +29,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  const row = (Array.isArray(data) ? data[0] : data) as { id?: string } | null | undefined
+  const productId = row?.id
+
+  if (productId) {
+    try {
+      const { data: chatWorkflow } = await sb
+        .from('workflows')
+        .select('id')
+        .eq('webhook_path', 'client-chat')
+        .maybeSingle()
+
+      if (chatWorkflow) {
+        const { error: linkError } = await sb
+          .from('product_workflows')
+          .insert({ product_id: productId, workflow_id: chatWorkflow.id })
+          .select()
+          .maybeSingle()
+        if (linkError) console.error('Auto-assign client chat workflow error:', linkError.message)
+      }
+    } catch (e) {
+      console.error('Auto-assign client chat workflow error:', e)
+    }
+  }
+
   return NextResponse.json({ ok: true, product: data })
 }

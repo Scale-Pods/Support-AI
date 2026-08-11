@@ -16,7 +16,7 @@ const S: Record<string, React.CSSProperties> = {
   page:   { minHeight:'100vh', background:'var(--background)', color:'var(--foreground)', fontFamily:'Inter,sans-serif' },
   topbar: { height:60, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 1.75rem', borderBottom:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.008)' },
   scroll: { padding:'1.75rem' },
-  item:   { display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'0.875rem 0' },
+  item:   { display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'0.5rem', borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'0.875rem 0' },
 }
 
 export default function AssignWorkflows() {
@@ -54,7 +54,13 @@ export default function AssignWorkflows() {
 
   return (
     <div style={S.page}>
-      <div style={S.topbar}>
+      <style>{`
+        @media (max-width: 768px) {
+          .pw-scroll { padding: 1rem !important; }
+          .pw-topbar { padding: 0 1rem !important; }
+        }
+      `}</style>
+      <div className="pw-topbar" style={S.topbar}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <Link href="/admin/products" style={{ fontSize:'0.8375rem', color:'var(--muted-foreground)', textDecoration:'none' }}>&larr; Products</Link>
         </div>
@@ -62,7 +68,7 @@ export default function AssignWorkflows() {
           {theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}
         </button>
       </div>
-      <div style={S.scroll}>
+      <div className="pw-scroll" style={S.scroll}>
         <h1 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.1rem', fontWeight:600, marginBottom:'1.5rem', color:'var(--foreground)' }}>Assign Workflows</h1>
         {published.length === 0 && <p style={{ color:'var(--muted-foreground)', fontSize:'0.875rem' }}>No published workflows. Publish one first.</p>}
         {published.map(w => {

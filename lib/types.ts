@@ -19,14 +19,34 @@ export interface Product {
   creator?: { full_name: string; email: string }
 }
 
+export interface Workflow {
+  id: string
+  n8n_workflow_id?: string | null
+  name: string
+  webhook_path: string | null
+  is_active: boolean
+  status: string
+  has_webhook: boolean
+  steps_count?: number
+  created_at?: string
+}
+
+export interface WorkflowContext {
+  workflows: Workflow[]
+}
+
+export interface MessageFile { name: string; type: string; data?: string; url?: string }
+
 export interface Message {
   id: string
   session_id: string
-  sender: 'user' | 'ai'
+  sender: 'user' | 'ai' | 'agent'
   content: string
   category?: string
   confidence?: number
   created_at: string
+  should_escalate?: string
+  files?: MessageFile[] | null
 }
 
 export interface Session {
@@ -57,10 +77,13 @@ export interface Ticket {
 export interface Escalation {
   id: string
   ticket_id: string
+  session_id?: string | null
   reason: string
   triggered_by: string
   confidence_at_trigger: number
   routed_to: string
+  client_reason?: string | null
+  client_note?: string | null
   created_at: string
 }
 

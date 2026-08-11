@@ -23,7 +23,7 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const { user, profile, loading: authLoading, signIn, signOut } = useAuth()
+  const { user, profile, loading: authLoading, signIn } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -114,7 +114,7 @@ function LoginForm() {
     setSubmitting(false)
   }
 
-  const S = {
+  const S: Record<string, React.CSSProperties> = {
     wrapper: { minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', background:'var(--background)' },
     card: { width:'100%', maxWidth:420, position:'relative', zIndex:1, background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, padding:'2.5rem' },
     logo: { fontFamily:'Inter,sans-serif', fontSize:'1.25rem', fontWeight:700, background:'linear-gradient(135deg,var(--primary),var(--ring))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', display:'flex', alignItems:'center', gap:8, marginBottom:'2rem' },
@@ -133,25 +133,22 @@ function LoginForm() {
   }
 
   return (
-    <div style={S.wrapper}>
+    <div className="login-page" style={S.wrapper}>
       <BgOrbs />
-      <div style={S.card}>
+      <style>{`
+        .login-page { padding: 1rem; }
+        @media (max-width: 480px) {
+          .login-page { padding: 0.75rem; }
+          .login-card { padding: 1.75rem 1.25rem !important; }
+        }
+      `}</style>
+      <div className="login-card" style={S.card}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={S.logo}><div style={S.dot} /><span>SupportAI</span></div>
           <button onClick={toggleTheme} style={{ background:'transparent', border:'1px solid var(--border)', borderRadius:8, width:36, height:36, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem' }} title="Toggle theme">
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </div>
-
-        {user && profile && (
-          <div style={{ marginBottom:'1.5rem', padding:'0.75rem 1rem', background:'color-mix(in srgb, var(--primary) 8%, transparent)', border:'1px solid color-mix(in srgb, var(--primary) 20%, transparent)', borderRadius:10, fontSize:'0.8125rem' }}>
-            <div style={{ fontWeight:600, marginBottom:4 }}>Already signed in</div>
-            <div style={{ color:'var(--muted-foreground)', marginBottom:8 }}>{user.email}</div>
-            <button onClick={signOut} style={{ background:'transparent', border:'1px solid color-mix(in srgb, var(--destructive) 20%, transparent)', color:'var(--destructive)', borderRadius:6, padding:'0.375rem 0.75rem', fontSize:'0.75rem', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              Sign Out
-            </button>
-          </div>
-        )}
 
         <div style={S.tabRow}>
           <div style={{ ...S.tab, ...(mode==='login' ? S.tabActive : {}) }} onClick={() => setMode('login')}>Sign In</div>
