@@ -14,10 +14,59 @@ import {
   Package, Upload, Users, Home, User, MessageSquare, Target,
   AlertOctagon, Box, RefreshCw, Menu, Sun, Moon, LogOut,
   Check, X, ChevronDown, Globe, Plus, Link2, FileText,
-  File, CheckCircle2, CloudUpload, Loader2, Headphones,
+  File, CheckCircle2, CloudUpload, Loader2, Headphones, Eye, EyeOff,
 } from 'lucide-react'
 
 type View = 'dashboard'|'tickets'|'escalations'|'products'|'ingest'|'audit'|'users'|'errors'
+
+type EscRow = Escalation & { _client?: string | null }
+
+interface UserLite { id: string; full_name: string | null; email: string }
+type AuditLogRow = AuditLog & { _user?: UserLite | null }
+
+interface AdminUserRow extends UserLite {
+  product_id: string | null
+  is_admin?: boolean
+  role?: string | null
+  created_at: string
+  products?: { id: string; name: string; slug: string } | null
+}
+
+interface KbDocRow {
+  title?: string | null
+  source_type?: string | null
+  status?: string | null
+  product_id?: string | null
+  created_at: string
+  products?: { id: string; name: string; slug: string } | null
+  _public?: boolean
+}
+
+interface WorkflowErrorRow {
+  id: string
+  workflow_name?: string | null
+  error_message?: string | null
+  ai_diagnosis?: string | null
+  ai_fix?: string | null
+  execution_id?: string | null
+  client_product_id?: string | null
+  resolved?: boolean | string | null
+  status?: string | null
+  severity?: string | null
+  created_at: string
+  error_stack?: string | null
+  failed_node?: string | null
+  ai_resolution_diagnosis?: string | null
+  replay_attempts?: number | null
+  last_checked_at?: string | null
+  product_name?: string
+  client_name?: string
+  client_email?: string
+}
+
+const AUDIT_PAGE_SIZE = 10
+const AUDIT_ARCHIVE_DAYS = 15
+const ESC_PAGE_SIZE = 10
 
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -26,6 +75,47 @@ function fmtDate(d: string) {
 
 function isLocked(s: string | undefined | null) {
   return s === 'resolved' || s === 'closed'
+}
+
+function clientPrefix(name: string | null | undefined, email?: string | null) {
+  const src = ((name || '').trim() || (email || '').split('@')[0] || '?')
+  const words = src.split(/[\s._-]+/).filter(Boolean)
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()
+  return src.slice(0, 2).toUpperCase() || 'TK'
+}
+
+function mergeEscalationPairs(rows: Escalation[]): Escalation[] {
+  const WINDOW = 2 * 60 * 1000
+  const used = new Set<string>()
+  const out: Escalation[] = []
+  const ts = (r: Escalation) => new Date(r.created_at).getTime()
+  for (const r of rows) {
+    if (used.has(r.id)) continue
+    if (r.reason === 'user_requested' && r.triggered_by === 'system' && r.ticket_id) {
+      let best: Escalation | undefined
+      let bestD = Infinity
+      for (const c of rows) {
+        if (used.has(c.id) || c.id === r.id) continue
+        if (!(c.reason === 'user_requested' && c.triggered_by === 'client' && !c.ticket_id)) continue
+        if (c.session_id && r.session_id && c.session_id !== r.session_id) continue
+        const d = Math.abs(ts(c) - ts(r))
+        if (d < WINDOW && d < bestD) { best = c; bestD = d }
+      }
+      if (best) {
+        used.add(best.id)
+        out.push({
+          ...r,
+          session_id: r.session_id ?? best.session_id,
+          triggered_by: 'client',
+          client_reason: best.client_reason ?? null,
+          client_note: best.client_note ?? null,
+        })
+        continue
+      }
+    }
+    out.push(r)
+  }
+  return out
 }
 
 function ReplyBar(props: { replyText: string; onReplyChange: (v: string) => void; onSend: () => void; sending: boolean; locked: boolean; lockedLabel: string }) {
@@ -116,18 +206,25 @@ export default function AdminDashboard() {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [authErr, setAuthErr]   = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [redirected, setRedirected] = useState(false)
   const [tickets, setTickets]   = useState<Ticket[]>([])
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([])
   const [activeFilter, setActiveFilter]       = useState('all')
-  const [escalations, setEscalations] = useState<Escalation[]>([])
-  const [auditLogs, setAuditLogs]     = useState<AuditLog[]>([])
+  const [escalations, setEscalations] = useState<EscRow[]>([])
+  const [escPage, setEscPage]         = useState(1)
+  const [auditLogs, setAuditLogs]     = useState<AuditLogRow[]>([])
+  const [auditPage, setAuditPage]     = useState(1)
+  const [auditTotal, setAuditTotal]   = useState(0)
+  const [auditArchived, setAuditArchived] = useState(false)
   const [products, setProducts]       = useState<Product[]>([])
-  const [users, setUsers]             = useState<any[]>([])
-  const [kbDocs, setKbDocs]           = useState<any[]>([])
+  const [users, setUsers]             = useState<AdminUserRow[]>([])
+  const [kbDocs, setKbDocs]           = useState<KbDocRow[]>([])
   const [stats, setStats]             = useState({ conversations:0, openTickets:0, avgConf:0, escRate:0 })
+  const [statInfo, setStatInfo]       = useState<string | null>(null)
+  const [ticketCodes, setTicketCodes] = useState<Record<string, string>>({})
   const [categories, setCategories]   = useState<[string,number][]>([])
-  const [recentLogs, setRecentLogs]   = useState<AuditLog[]>([])
+  const [recentLogs, setRecentLogs]   = useState<AuditLogRow[]>([])
   const [openTicketCount, setOpenTicketCount] = useState(0)
   const [selectedTicket, setSelectedTicket]   = useState<Ticket|null>(null)
   const [modalTeam, setModalTeam]     = useState('')
@@ -154,7 +251,7 @@ export default function AdminDashboard() {
   const [newProductName, setNewProductName]       = useState('')
   const [newProductSlug, setNewProductSlug]       = useState('')
   const [createProductLoading, setCreateProductLoading] = useState(false)
-  const [workflowErrors, setWorkflowErrors] = useState<any[]>([])
+  const [workflowErrors, setWorkflowErrors] = useState<WorkflowErrorRow[]>([])
   const [expandedError, setExpandedError] = useState<string|null>(null)
   const [checkingId, setCheckingId] = useState<string|null>(null)
   const [checkStatus, setCheckStatus] = useState<Record<string,string>>({})
@@ -205,25 +302,26 @@ export default function AdminDashboard() {
       if (logsRes.error) console.error('Logs query error:', logsRes.error)
       if (ticketsRes.error) console.error('Tickets query error:', ticketsRes.error)
       if (sessionsRes.error) console.error('Sessions query error:', sessionsRes.error)
-      const logs      = logsRes.data || []
+      const logs      = (logsRes.data || []) as AuditLog[]
       const allTkts   = ticketsRes.data || []
       const totalSess = sessionsRes.count || 0
       const open      = allTkts.filter(t => t.status === 'open').length
-      const avgConf   = logs.length ? logs.reduce((s:number,l:any)=>s+(l.confidence||0),0)/logs.length : 0
-      const escalated = logs.filter((l:any) => l.escalated).length
+      const avgConf   = logs.length ? logs.reduce((s,l)=>s+(l.confidence||0),0)/logs.length : 0
+      const escalated = logs.filter(l => l.escalated).length
       const escRate   = logs.length ? Math.round(escalated/logs.length*100) : 0
       setStats({ conversations: totalSess, openTickets: open, avgConf: Math.round(avgConf*100), escRate })
+      buildTicketCodes()
       setOpenTicketCount(open)
       const cats: Record<string,number> = {}
-      logs.forEach((l:any) => { if(l.category) cats[l.category] = (cats[l.category]||0)+1 })
+      logs.forEach(l => { if(l.category) cats[l.category] = (cats[l.category]||0)+1 })
       setCategories(Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6))
-      const userIds = [...new Set(logs.map((l: any) => l.user_id).filter(Boolean))]
-      let userMap: Record<string, any> = {}
+      const userIds = [...new Set(logs.map(l => l.user_id).filter(Boolean))]
+    let userMap: Record<string, UserLite> = {}
       if (userIds.length > 0) {
         const { data: users } = await supabase.from('users').select('id, full_name, email').in('id', userIds)
-        userMap = Object.fromEntries((users || []).map((u: any) => [u.id, u]))
+        userMap = Object.fromEntries((users || []).map(u => [u.id, u]))
       }
-      setRecentLogs(logs.slice(0,8).map((l: any) => ({ ...l, _user: userMap[l.user_id] || null })) as AuditLog[])
+      setRecentLogs(logs.slice(0,8).map(l => ({ ...l, _user: userMap[l.user_id] || null })))
     } catch (e) {
       console.error('Dashboard load failed:', e)
     } finally {
@@ -231,11 +329,40 @@ export default function AdminDashboard() {
     }
   }
 
+  async function buildTicketCodes() {
+    const [tRes, sRes, uRes] = await Promise.all([
+      supabase.from('tickets').select('id,session_id,created_at').order('created_at', { ascending: true }),
+      supabase.from('public_sessions').select('id,user_id'),
+      supabase.from('users').select('id,full_name,email'),
+    ])
+    type TRow = { id: string; session_id: string | null }
+    type SRow = { id: string; user_id: string | null }
+    type URow = { id: string; full_name: string | null; email: string | null }
+    const sessUser = new Map<string, string | null>()
+    for (const s of (sRes.data || []) as SRow[]) sessUser.set(s.id, s.user_id)
+    const userPfx = new Map<string, string>()
+    for (const u of (uRes.data || []) as URow[]) userPfx.set(u.id, clientPrefix(u.full_name, u.email))
+    const byUser = new Map<string, string[]>()
+    for (const t of (tRes.data || []) as TRow[]) {
+      const uid = (t.session_id && sessUser.get(t.session_id)) || 'unknown'
+      const arr = byUser.get(uid) || []
+      arr.push(t.id)
+      byUser.set(uid, arr)
+    }
+    const codes: Record<string, string> = {}
+    byUser.forEach((ids, uid) => {
+      const pfx = uid === 'unknown' ? 'TK' : (userPfx.get(uid) || 'TK')
+      ids.forEach((id, i) => { codes[id] = `${pfx}${i + 1}` })
+    })
+    setTicketCodes(codes)
+  }
+
   async function loadTickets() {
     const { data } = await supabase.from('tickets').select('*').order('created_at', { ascending: false })
     const t = (data || []) as Ticket[]
     setTickets(t); setFilteredTickets(t)
     setOpenTicketCount(t.filter(x=>x.status==='open').length)
+    buildTicketCodes()
   }
 
   function filterTickets(status: string) {
@@ -255,8 +382,30 @@ export default function AdminDashboard() {
   }
 
   async function loadEscalations() {
-    const { data } = await supabase.from('escalations').select('*').order('created_at', { ascending: false }).limit(50)
-    setEscalations((data || []) as Escalation[])
+    const [eRes, sRes, uRes, tRes] = await Promise.all([
+      supabase.from('escalations').select('*').order('created_at', { ascending: false }).limit(150),
+      supabase.from('public_sessions').select('id,user_id'),
+      supabase.from('users').select('id,full_name,email'),
+      supabase.from('tickets').select('id,session_id'),
+    ])
+    const sessUser = new Map<string, string | null>()
+    for (const s of (sRes.data || []) as { id: string; user_id: string | null }[]) sessUser.set(s.id, s.user_id)
+    const uName = new Map<string, string>()
+    for (const u of (uRes.data || []) as { id: string; full_name: string | null; email: string | null }[])
+      uName.set(u.id, (u.full_name || '').trim() || (u.email || '').split('@')[0])
+    // n8n-written escalations have session_id = null — recover it via their ticket
+    const ticketSess = new Map<string, string | null>()
+    for (const t of (tRes.data || []) as { id: string; session_id: string | null }[]) ticketSess.set(t.id, t.session_id)
+    const merged = mergeEscalationPairs((eRes.data || []) as Escalation[])
+    setEscPage(1)
+    setEscalations(merged.map(e => {
+      const sid = e.session_id ?? (e.ticket_id ? ticketSess.get(e.ticket_id) ?? null : null)
+      return {
+        ...e,
+        session_id: sid,
+        _client: sid ? (uName.get(sessUser.get(sid) || '') || null) : null,
+      }
+    }))
   }
 
   function dedupeMessages(msgs: Message[]): Message[] {
@@ -367,34 +516,58 @@ export default function AdminDashboard() {
     return () => { supabase.removeChannel(channel) }
   }, [activeSessionId, supabase])
 
-  async function loadAuditLogs() {
-    const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100)
-    const logs = (data || []) as any[]
+  async function loadAuditLogs(page = auditPage, archived = auditArchived) {
+    const from = (page - 1) * AUDIT_PAGE_SIZE
+    const cutoff = new Date(Date.now() - AUDIT_ARCHIVE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    let query = supabase.from('audit_logs').select('*', { count: 'exact' })
+    query = archived
+      ? query.lt('created_at', cutoff)
+      : query.gte('created_at', cutoff)
+    const { data, count } = await query
+      .order('created_at', { ascending: false })
+      .range(from, from + AUDIT_PAGE_SIZE - 1)
+    const logs = (data || []) as AuditLog[]
+    setAuditTotal(count || 0)
     const userIds = [...new Set(logs.map(l => l.user_id).filter(Boolean))]
-    let userMap: Record<string, any> = {}
+    let userMap: Record<string, UserLite> = {}
     if (userIds.length > 0) {
       const { data: users } = await supabase.from('users').select('id, full_name, email').in('id', userIds)
-      userMap = Object.fromEntries((users || []).map((u: any) => [u.id, u]))
+      userMap = Object.fromEntries((users || []).map(u => [u.id, u]))
     }
-    setAuditLogs(logs.map(l => ({ ...l, _user: userMap[l.user_id] || null })) as AuditLog[])
+    setAuditLogs(logs.map(l => ({ ...l, _user: userMap[l.user_id] || null })))
+  }
+
+  function gotoAuditPage(p: number) {
+    const max = Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE))
+    if (p < 1 || p > max || p === auditPage) return
+    setAuditPage(p)
+    loadAuditLogs(p, auditArchived)
+  }
+
+  async function toggleAuditArchive() {
+    const next = !auditArchived
+    setAuditArchived(next)
+    setAuditPage(1)
+    await loadAuditLogs(1, next)
   }
 
   async function loadProducts() {
     const res = await fetch('/api/products/list')
     const { products: data } = await res.json()
-    setProducts((data || []) as any)
+    setProducts((data || []) as Product[])
   }
 
   async function loadUsers() {
   const { data } = await supabase.from('users').select('*').eq('role', 'client').order('created_at', { ascending: false })
   if (data && data.length > 0) {
-    const productIds = [...new Set(data.map((u: any) => u.product_id).filter(Boolean))]
+    const rows = data as AdminUserRow[]
+    const productIds = [...new Set(rows.map(u => u.product_id).filter(Boolean))] as string[]
     if (productIds.length > 0) {
       const res = await fetch('/api/products/list')
       const { products: allProds } = await res.json()
-      const prods = (allProds || []).filter((p: any) => productIds.includes(p.id))
-      const prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p]))
-      data.forEach((u: any) => { u.products = prodMap[u.product_id] || null })
+      const prods = ((allProds || []) as Product[]).filter(p => productIds.includes(p.id))
+      const prodMap = Object.fromEntries(prods.map(p => [p.id, p]))
+      rows.forEach(u => { u.products = prodMap[u.product_id ?? ''] || null })
     }
   }
   setUsers(data || [])
@@ -405,31 +578,32 @@ export default function AdminDashboard() {
       .select('id, workflow_name, error_message, ai_diagnosis, ai_fix, execution_id, client_product_id, resolved, status, created_at, error_stack, failed_node, severity, webhook_path, has_webhook, ai_resolution_diagnosis, replay_attempts, last_checked_at')
       .order('created_at', { ascending: false }).limit(100)
     if (!errors || errors.length === 0) { setWorkflowErrors([]); return }
-    const productIds = [...new Set(errors.map((e: any) => e.client_product_id).filter(Boolean))]
-    let prodMap: Record<string, any> = {}
+    const rows = errors as WorkflowErrorRow[]
+    const productIds = [...new Set(rows.map(e => e.client_product_id).filter(Boolean))] as string[]
+    let prodMap: Record<string, Product> = {}
     if (productIds.length > 0) {
       const res = await fetch('/api/products/list')
       const { products: allProds } = await res.json()
-      const prods = (allProds || []).filter((p: any) => productIds.includes(p.id))
-      prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p]))
+      const prods = ((allProds || []) as Product[]).filter(p => productIds.includes(p.id))
+      prodMap = Object.fromEntries(prods.map(p => [p.id, p]))
     }
-    const userIds = [...new Set(errors.map((e: any) => prodMap[e.client_product_id]?.id).filter(Boolean))]
-    let userMap: Record<string, any> = {}
+    const userIds = [...new Set(rows.map(e => prodMap[e.client_product_id ?? '']?.id).filter(Boolean))] as string[]
+    const userMap: Record<string, AdminUserRow> = {}
     if (userIds.length > 0) {
       const { data: clients } = await supabase.from('users').select('id, full_name, email, product_id').in('product_id', userIds)
-      clients?.forEach((u: any) => { if (u.product_id) userMap[u.product_id] = u })
+      ;(clients || []).forEach(u => { const c = u as AdminUserRow; if (c.product_id) userMap[c.product_id] = c })
     }
-    const enriched = errors.map((e: any) => ({
+    const enriched = rows.map(e => ({
       ...e,
       resolved: e.resolved === true || e.resolved === 'true' || e.status === 'resolved',
-      product_name: prodMap[e.client_product_id]?.name || '—',
-      client_name: userMap[e.client_product_id]?.full_name || '—',
-      client_email: userMap[e.client_product_id]?.email || '—',
+      product_name: prodMap[e.client_product_id ?? '']?.name || '—',
+      client_name: userMap[e.client_product_id ?? '']?.full_name || '—',
+      client_email: userMap[e.client_product_id ?? '']?.email || '—',
     }))
     setWorkflowErrors(enriched)
   }
 
-  async function runResolutionCheck(e: any) {
+  async function runResolutionCheck(e: WorkflowErrorRow) {
     setCheckingId(e.id)
     setCheckStatus(s => ({ ...s, [e.id]: 'Triggering check…' }))
     try {
@@ -474,16 +648,16 @@ export default function AdminDashboard() {
 
   async function loadKBDocs() {
     const { data } = await supabase.from('knowledge_documents').select('*').order('created_at', { ascending: false }).limit(20)
-    const docs = (data || []) as any[]
-    const productIds = [...new Set(docs.map(d => d.product_id).filter(Boolean))]
-    let prodMap: Record<string, any> = {}
+    const docs = (data || []) as KbDocRow[]
+    const productIds = [...new Set(docs.map(d => d.product_id).filter(Boolean))] as string[]
+    let prodMap: Record<string, Product> = {}
     if (productIds.length > 0) {
       const res = await fetch('/api/products/list')
       const { products: allProds } = await res.json()
-      const prods = (allProds || []).filter((p: any) => productIds.includes(p.id))
-      prodMap = Object.fromEntries(prods.map((p: any) => [p.id, p]))
+      const prods = ((allProds || []) as Product[]).filter(p => productIds.includes(p.id))
+      prodMap = Object.fromEntries(prods.map(p => [p.id, p]))
     }
-    setKbDocs(docs.map(d => ({ ...d, products: prodMap[d.product_id] || null, _public: !d.product_id })))
+    setKbDocs(docs.map(d => ({ ...d, products: prodMap[d.product_id ?? ''] || null, _public: !d.product_id })))
   }
 
   async function toggleProduct(id: string, active: boolean) {
@@ -532,7 +706,7 @@ export default function AdminDashboard() {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const content = await page.getTextContent()
-      text += content.items.map((item: any) => ('str' in item ? item.str : '')).join(' ') + '\n\n'
+      text += content.items.map(item => ('str' in item ? item.str : '')).join(' ') + '\n\n'
     }
     worker.terminate()
     return text.trim()
@@ -609,7 +783,7 @@ export default function AdminDashboard() {
       const productId = ingestProduct === '__public__' ? null : ingestProduct
       const isPublic = ingestProduct === '__public__'
 
-      let body: Record<string, any> = {
+      const body: Record<string, string | boolean | null> = {
         product_id: productId,
         title,
         is_public: isPublic,
@@ -729,16 +903,28 @@ export default function AdminDashboard() {
         <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:500, marginBottom:'0.5rem', color:'var(--muted-foreground)' }}>
           Password
         </label>
-        <input
-          type="password"
-          style={{
-            width:'100%', padding:'0.75rem 1rem', background:'rgba(255,255,255,0.05)',
-            border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, color:'var(--foreground)',
-            fontFamily:'Inter,sans-serif', fontSize:'0.9rem', outline:'none', marginBottom:'1.25rem'
-          }}
-          value={password} onChange={e=>setPassword(e.target.value)}
-          placeholder="••••••••" onKeyDown={e=>e.key==='Enter'&&handleLogin()}
-        />
+        <div style={{ position:'relative', marginBottom:'1.25rem' }}>
+          <input
+            type={showPassword ? 'text' : 'password'}
+            style={{
+              width:'100%', padding:'0.75rem 2.75rem 0.75rem 1rem', background:'rgba(255,255,255,0.05)',
+              border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, color:'var(--foreground)',
+              fontFamily:'Inter,sans-serif', fontSize:'0.9rem', outline:'none'
+            }}
+            value={password} onChange={e=>setPassword(e.target.value)}
+            placeholder="••••••••" onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+          />
+          <button
+            type="button"
+            onClick={()=>setShowPassword(v=>!v)}
+            style={{ position:'absolute', right:'0.625rem', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--muted-foreground)', padding:4, display:'flex', alignItems:'center', justifyContent:'center', lineHeight:0 }}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
+            tabIndex={-1}
+          >
+            {showPassword ? <EyeOff size={16}/> : <Eye size={16}/>}
+          </button>
+        </div>
         <button
           style={{
             width:'100%', padding:'0.875rem', background:'linear-gradient(135deg,var(--chart-2),var(--primary))',
@@ -818,7 +1004,7 @@ export default function AdminDashboard() {
         <div style={S.modal} onClick={e=>e.target===e.currentTarget&&(setSelectedTicket(null), setActiveSessionId(null))}>
           <div style={{ ...S.modalInner, maxWidth:680 }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.5rem' }}>
-              <div style={S.modalTitle}>Ticket #{selectedTicket.id.substr(0,8)}</div>
+              <div style={S.modalTitle}>Ticket #{ticketCodes[selectedTicket.id] || selectedTicket.id.substr(0,8)}</div>
               <div style={{ width:30, height:30, borderRadius:'50%', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>{setSelectedTicket(null); setActiveSessionId(null)}}><X size={14} /></div>
             </div>
             {[['Title',selectedTicket.title],['Description',selectedTicket.description||'—']].map(([l,v])=>(
@@ -960,7 +1146,7 @@ export default function AdminDashboard() {
                 <div style={S.mFieldLabel}>Ticket</div>
                 {escalationDetail?.ticket ? (
                   <div style={S.mFieldVal}>
-                    <span style={{ fontFamily:'monospace', fontSize:'0.75rem' }}>#{escalationDetail.ticket.id.substr(0,8)}</span>{' '}
+                    <span style={{ fontFamily:'monospace', fontSize:'0.75rem' }}>#{ticketCodes[escalationDetail.ticket.id] || escalationDetail.ticket.id.substr(0,8)}</span>{' '}
                     <Badge variant={statusBadge(escalationDetail.ticket.status)}>{escalationDetail.ticket.status}</Badge>
                     <div style={{ fontSize:'0.75rem', color:'var(--muted-foreground)', marginTop:2 }}>{escalationDetail.ticket.assigned_team||'unassigned'}</div>
                   </div>
@@ -1049,10 +1235,10 @@ export default function AdminDashboard() {
         <div style={S.sidebarInner}>
           <div style={S.sidebarLogo}><div style={S.sLogo2} /><span>SupportAI</span></div>
           <div style={S.pill}>Admin Portal</div>
-          {[['Overview',navItems.slice(0,2)],['Support',navItems.slice(2,4)],['Configuration',navItems.slice(4)]].map(([sec, items]:any)=>(
+            {([['Overview',navItems.slice(0,2)],['Support',navItems.slice(2,4)],['Configuration',navItems.slice(4)]] as [string, typeof navItems][]).map(([sec, items])=>(
             <div key={sec} style={{ marginBottom:'1.5rem' }}>
               <div style={S.secLabel}>{sec}</div>
-              {items.map(([v,iconKey,label]:any)=>(
+              {items.map(([v,iconKey,label])=>(
                 <div key={v} style={{ ...S.navItem, ...(view===v?S.navActive:{}) }} onClick={()=>switchView(v)}>
                   <span style={{ flexShrink:0, display:'flex', color:'currentColor' }}>{icons[iconKey]}</span>{label}
                   {v==='tickets' && openTicketCount > 0 && <div style={S.tktBadge}>{openTicketCount}</div>}
@@ -1107,17 +1293,28 @@ export default function AdminDashboard() {
           </div>
           <div className="admin-scroll" style={S.scroll}>
             <div className="admin-stats-grid" style={S.statsGrid}>
-              {[
-                { label:'Total Conversations', icon:'chat', value: stats.conversations, sub:'All time' },
-                { label:'Open Tickets',        icon:'tickets', value: stats.openTickets,  sub:'Needs attention', red: stats.openTickets > 0 },
-                { label:'Avg Confidence',      icon:'target', value: stats.avgConf+'%',  sub: stats.avgConf > 65 ? '↑ Above threshold' : '↓ Below threshold' },
-                { label:'Escalation Rate',     icon:'alert', value: stats.escRate+'%',  sub: stats.escRate < 15 ? '↓ Under control' : '↑ High rate' },
-              ].map(s=>(
-                <div key={s.label} style={S.statCard}>
+              {([
+                { label:'Total Conversations', icon:'chat', value: stats.conversations, sub:'All time', info:'Every chat session an end user has ever started with your AI support widget, counted all-time from the public_sessions table. It grows by one each time someone begins a new conversation.' },
+                { label:'Open Tickets',        icon:'tickets', value: stats.openTickets,  sub:'Needs attention', red: stats.openTickets > 0, info:'Support tickets currently in "open" status — received but not yet resolved or closed by your team. Each one represents a user question that still needs human action.' },
+                { label:'Avg Confidence',      icon:'target', value: stats.avgConf+'%',  sub: stats.avgConf > 65 ? '↑ Above threshold' : '↓ Below threshold', info:'Average confidence score of the AI across your last 200 logged queries. For every answer, the model rates how well its knowledge-base sources match the question on a 0–100% scale; this card shows the mean of those scores. Above 65% is considered healthy — if it drops, ingest more or better content so the AI stops guessing.' },
+                { label:'Escalation Rate',     icon:'alert', value: stats.escRate+'%',  sub: stats.escRate < 15 ? '↓ Under control' : '↑ High rate', info:'The share of your last 200 queries that were escalated to a human ticket instead of answered directly — typically because the AI\'s confidence fell below the escalation threshold. Under 15% means the AI resolves most questions on its own.' },
+              ] as { label:string; icon:string; value:string|number; sub:string; red?:boolean; info:string }[]).map(s=>(
+                <div key={s.label} style={{ ...S.statCard, position:'relative' }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <span style={S.statLabel}>{s.label}</span><span style={{ flexShrink:0, display:'flex', color:'var(--muted-foreground)', width:18, height:18 }}>{icons[s.icon]}</span>
+                    <span style={S.statLabel}>{s.label}</span>
+                    <span
+                      onClick={()=>setStatInfo(statInfo===s.label ? null : s.label)}
+                      style={{ flexShrink:0, display:'flex', color:'var(--muted-foreground)', width:18, height:18, cursor:'pointer' }}
+                      title={`About ${s.label}`}
+                    >{icons[s.icon]}</span>
                   </div>
-                  <div style={{ ...S.statValue, color: (s as any).red ? 'var(--destructive)' : 'var(--foreground)' }}>{s.value}</div>
+                  {statInfo===s.label && (
+                    <div onClick={e=>e.stopPropagation()} style={{ position:'absolute', top:'2.9rem', right:'0.75rem', zIndex:60, width:270, maxWidth:'calc(100vw - 3rem)', background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:'0.875rem', boxShadow:'0 10px 30px rgba(0,0,0,0.25)' }}>
+                      <div style={{ fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--chart-2)', marginBottom:'0.5rem' }}>{s.label}</div>
+                      <div style={{ fontSize:'0.75rem', lineHeight:1.55, color:'var(--muted-foreground)' }}>{s.info}</div>
+                    </div>
+                  )}
+                  <div style={{ ...S.statValue, color: s.red ? 'var(--destructive)' : 'var(--foreground)' }}>{s.value}</div>
                   <div style={{ fontSize:'0.75rem', color: stats.avgConf>65||stats.escRate<15 ? 'var(--chart-1)' : 'var(--muted-foreground)' }}>{s.sub}</div>
                 </div>
               ))}
@@ -1165,7 +1362,7 @@ export default function AdminDashboard() {
                       ? <tr key="empty"><td colSpan={6} style={{ ...S.td, textAlign:'center', padding:'2rem', color:'var(--muted-foreground)' }}>No activity yet</td></tr>
                       : recentLogs.map(l=>(
                         <tr key={l.id}>
-                          <td style={{ ...S.td, color:'var(--foreground)' }}>{(l as any)._user?.full_name || (l as any)._user?.email || ((l.session_id?.startsWith('pub_') || l.user_id === 'anonymous') ? 'Anonymous' : (l.session_id?.substr(0,8) || '—'))}</td>
+                          <td style={{ ...S.td, color:'var(--foreground)' }}>{l._user?.full_name || l._user?.email || ((l.session_id?.startsWith('pub_') || l.user_id === 'anonymous') ? 'Anonymous' : (l.session_id?.substr(0,8) || '—'))}</td>
                           <td style={S.td}>{l.query?.slice(0,60)}{l.query?.length>60?'…':''}</td>
                           <td style={S.td}>{l.category?<Badge variant={catBadge(l.category)}>{l.category}</Badge>:'—'}</td>
                           <td style={S.td}>{l.confidence!=null?<Badge variant={confBadge(l.confidence)}>{Math.round(l.confidence*100)}%</Badge>:'—'}</td>
@@ -1205,7 +1402,7 @@ export default function AdminDashboard() {
               : filteredTickets.map(t=>(
                 <div key={t.id} style={S.tktCard} onClick={()=>openTicket(t)}>
                   <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
-                    <span style={{ fontFamily:'monospace', fontSize:'0.7rem', color:'var(--muted-foreground)' }}>#{t.id.substr(0,8)}</span>
+                    <span style={{ fontFamily:'monospace', fontSize:'0.7rem', color:'var(--muted-foreground)' }}>#{ticketCodes[t.id] || t.id.substr(0,8)}</span>
                     <span style={{ fontWeight:600, fontSize:'0.875rem', flex:1 }}>{t.title}</span>
                     <Badge variant={statusBadge(t.status)}>{t.status}</Badge>
                     <Badge variant={priorityBadge(t.priority)}>{t.priority||'medium'}</Badge>
@@ -1245,11 +1442,16 @@ export default function AdminDashboard() {
                 <tbody>
                   {escalations.length===0
                     ? <tr key="empty-escalations"><td colSpan={6} style={{ ...S.td, textAlign:'center', padding:'2rem', color:'var(--muted-foreground)' }}>No escalations yet</td></tr>
-                    : escalations.map(e=>(
+                    : escalations.slice((escPage-1)*ESC_PAGE_SIZE, escPage*ESC_PAGE_SIZE).map(e=>(
                       <tr key={e.id} onClick={()=>openEscalation(e)} style={{ cursor:'pointer', transition:'background 0.15s' }} onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.03)'} onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background=''}>
-                        <td style={{ ...S.td, fontFamily:'monospace', fontSize:'0.75rem', color:'var(--foreground)' }}>{e.ticket_id?.substr(0,8)}…</td>
+                        <td style={{ ...S.td, fontFamily:'monospace', fontSize:'0.75rem', color:'var(--foreground)' }}>{e.ticket_id ? (ticketCodes[e.ticket_id] || e.ticket_id.substr(0,8)+'…') : <span style={{ color:'var(--muted-foreground)', fontStyle:'italic' }}>Pending</span>}</td>
                         <td style={S.td}><Badge variant={e.reason==='low_confidence'?'yellow':'red'}>{e.reason||'—'}</Badge>{e.client_reason && <div style={{ fontSize:'0.7rem', color:'var(--destructive)', marginTop:4 }}>{e.client_reason}</div>}</td>
-                        <td style={S.td}><Badge variant={e.triggered_by==='system'?'blue':'purple'}>{e.triggered_by||'—'}</Badge></td>
+                        <td style={S.td}>
+                          <div style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                            <Badge variant={e.reason==='user_requested' ? 'purple' : 'blue'}>{e.reason==='user_requested' ? 'client' : (e.triggered_by||'—')}</Badge>
+                            {e._client && <div style={{ fontSize:'0.7rem', color:'var(--muted-foreground)' }}>({e._client})</div>}
+                          </div>
+                        </td>
                         <td style={S.td}>{e.confidence_at_trigger!=null?Math.round(e.confidence_at_trigger*100)+'%':'—'}</td>
                         <td style={S.td}>{e.routed_to||'—'}</td>
                         <td style={S.td}>{fmtDate(e.created_at)}</td>
@@ -1258,6 +1460,26 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+            {(() => {
+              const totalPages = Math.max(1, Math.ceil(escalations.length / ESC_PAGE_SIZE))
+              return (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'1rem', flexWrap:'wrap', gap:8 }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--muted-foreground)' }}>
+                    {escalations.length} escalation{escalations.length===1?'':'s'} · page {escPage} of {totalPages}
+                  </span>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={()=>setEscPage(p=>Math.max(1,p-1))} disabled={escPage<=1}
+                      style={{ padding:'0.4375rem 0.875rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', borderRadius:8, cursor: escPage<=1?'not-allowed':'pointer', border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color: escPage<=1?'var(--muted-foreground)':'var(--foreground)', opacity: escPage<=1?0.5:1 }}>
+                      ← Prev
+                    </button>
+                    <button onClick={()=>setEscPage(p=>Math.min(totalPages,p+1))} disabled={escPage>=totalPages}
+                      style={{ padding:'0.4375rem 0.875rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', borderRadius:8, cursor: escPage>=totalPages?'not-allowed':'pointer', border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color: escPage>=totalPages?'var(--muted-foreground)':'var(--foreground)', opacity: escPage>=totalPages?0.5:1 }}>
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </>}
 
@@ -1511,7 +1733,7 @@ export default function AdminDashboard() {
                   <tbody>
                     {kbDocs.length===0
                       ? <tr key="empty-docs"><td colSpan={5} style={{ ...S.td, textAlign:'center', padding:'2rem', color:'var(--muted-foreground)' }}>No documents yet</td></tr>
-                      : kbDocs.map((d:any,i:number)=>(
+                      : kbDocs.map((d,i)=>(
                         <tr key={i}>
                           <td style={{ ...S.td, color:'var(--foreground)' }}>{d.title||'—'}</td>
                           <td style={S.td}>{d._public ? <Badge variant="cyan">Public KB</Badge> : (d.products?.name||'—')}</td>
@@ -1537,11 +1759,27 @@ export default function AdminDashboard() {
               </button>
               <div style={S.topbarTitle}>Audit Logs</div>
             </div>
-            <button style={S.btnGhost} onClick={loadAuditLogs}><RefreshCw size={14} style={{ marginRight:4 }} />Refresh</button>
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <div style={{ display:'inline-flex', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, overflow:'hidden' }}>
+                <button onClick={()=>{ if(auditArchived){ setAuditArchived(false); setAuditPage(1); loadAuditLogs(1,false) } }}
+                  style={{ padding:'0.4375rem 0.75rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', cursor:'pointer', border:'none', background: auditArchived ? 'transparent' : 'rgba(139,92,246,0.15)', color: auditArchived ? 'var(--muted-foreground)' : 'var(--chart-2)' }}>
+                  Active
+                </button>
+                <button onClick={toggleAuditArchive}
+                  style={{ padding:'0.4375rem 0.75rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', cursor:'pointer', border:'none', borderLeft:'1px solid rgba(255,255,255,0.08)', background: auditArchived ? 'rgba(139,92,246,0.15)' : 'transparent', color: auditArchived ? 'var(--chart-2)' : 'var(--muted-foreground)' }}>
+                  Archive
+                </button>
+              </div>
+              <button style={S.btnGhost} onClick={()=>loadAuditLogs()}><RefreshCw size={14} style={{ marginRight:4 }} />Refresh</button>
+            </div>
           </div>
           <div className="admin-scroll" style={S.scroll}>
-            <h2 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.375rem', fontWeight:700, marginBottom:'0.25rem' }}>Full Audit Trail</h2>
-            <p style={{ color:'var(--muted-foreground)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>Every interaction, PII-redacted. Query, response, confidence, category, sentiment, escalation status.</p>
+            <h2 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.375rem', fontWeight:700, marginBottom:'0.25rem' }}>{auditArchived ? 'Archived Logs' : 'Full Audit Trail'}</h2>
+            <p style={{ color:'var(--muted-foreground)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>
+              {auditArchived
+                ? `Logs older than ${AUDIT_ARCHIVE_DAYS} days, kept for reference.`
+                : `Every interaction, PII-redacted. Query, response, confidence, category, sentiment, escalation status. Logs move to Archive after ${AUDIT_ARCHIVE_DAYS} days.`}
+            </p>
             <div style={S.card}>
               <table style={S.table}>
                 <thead><tr>{['User','Query','Category','Confidence','Sentiment','Escalated','Time'].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
@@ -1550,7 +1788,7 @@ export default function AdminDashboard() {
                     ? <tr key="empty-logs"><td colSpan={7} style={{ ...S.td, textAlign:'center', padding:'2rem', color:'var(--muted-foreground)' }}>No logs yet</td></tr>
                     : auditLogs.map(l=>(
                       <tr key={l.id}>
-                        <td style={{ ...S.td, color:'var(--foreground)' }}>{(l as any)._user?.full_name || (l as any)._user?.email || (l.user_id === 'anonymous' ? 'Anonymous' : (l.user_id?.substr(0,8) || '—'))}</td>
+                        <td style={{ ...S.td, color:'var(--foreground)' }}>{l._user?.full_name || l._user?.email || (l.user_id === 'anonymous' ? 'Anonymous' : (l.user_id?.substr(0,8) || '—'))}</td>
                         <td style={S.td}>{l.query?.slice(0,60)}{l.query?.length>60?'…':''}</td>
                         <td style={S.td}>{l.category?<Badge variant={catBadge(l.category)}>{l.category}</Badge>:'—'}</td>
                         <td style={S.td}>{l.confidence!=null?<Badge variant={confBadge(l.confidence)}>{Math.round(l.confidence*100)}%</Badge>:'—'}</td>
@@ -1562,6 +1800,26 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+            {(() => {
+              const totalPages = Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE))
+              return (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'1rem', flexWrap:'wrap', gap:8 }}>
+                  <span style={{ fontSize:'0.75rem', color:'var(--muted-foreground)' }}>
+                    {auditTotal} log{auditTotal===1?'':'s'} · page {auditPage} of {totalPages}
+                  </span>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={()=>gotoAuditPage(auditPage-1)} disabled={auditPage<=1}
+                      style={{ padding:'0.4375rem 0.875rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', borderRadius:8, cursor: auditPage<=1?'not-allowed':'pointer', border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color: auditPage<=1?'var(--muted-foreground)':'var(--foreground)', opacity: auditPage<=1?0.5:1 }}>
+                      ← Prev
+                    </button>
+                    <button onClick={()=>gotoAuditPage(auditPage+1)} disabled={auditPage>=totalPages}
+                      style={{ padding:'0.4375rem 0.875rem', fontSize:'0.75rem', fontWeight:600, fontFamily:'Inter,sans-serif', borderRadius:8, cursor: auditPage>=totalPages?'not-allowed':'pointer', border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.03)', color: auditPage>=totalPages?'var(--muted-foreground)':'var(--foreground)', opacity: auditPage>=totalPages?0.5:1 }}>
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </>}
 
@@ -1578,7 +1836,7 @@ export default function AdminDashboard() {
           </div>
           <div className="admin-scroll" style={S.scroll}>
             <h2 style={{ fontFamily:'Inter,sans-serif', fontSize:'1.375rem', fontWeight:700, marginBottom:'0.25rem' }}>Client Management</h2>
-            <p style={{ color:'var(--muted-foreground)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>Assign clients to products. Each client's RAG is scoped to their assigned product only.</p>
+            <p style={{ color:'var(--muted-foreground)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>Assign clients to products. Each client&apos;s RAG is scoped to their assigned product only.</p>
             <div style={S.card}>
               <table style={S.table}>
                 <thead><tr>{['Name','Email','Product','Role','Created','Assign Product'].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
@@ -1589,7 +1847,7 @@ export default function AdminDashboard() {
                       <tr key={u.id}>
                         <td style={{ ...S.td, color:'var(--foreground)' }}>{u.full_name||'—'}</td>
                         <td style={S.td}>{u.email||'—'}</td>
-                        <td style={S.td}>{(u.products as any)?.name||<span style={{color:'var(--muted-foreground)'}}>Unassigned</span>}</td>
+                        <td style={S.td}>{u.products?.name||<span style={{color:'var(--muted-foreground)'}}>Unassigned</span>}</td>
                         <td style={S.td}><Badge variant={u.is_admin?'purple':'blue'}>{u.role||'client'}</Badge></td>
                         <td style={S.td}>{fmtDate(u.created_at)}</td>
                         <td style={S.td}>

@@ -326,7 +326,7 @@ export default function LandingPage() {
           <div>
             <div style={S.sectionLabel}>The Flow</div>
             <h2 style={S.sectionTitle}>How it works end-to-end</h2>
-            <p style={S.sectionSubtitle}>From the client's question to a resolved ticket — every step automated and logged.</p>
+            <p style={S.sectionSubtitle}>From the client&apos;s question to a resolved ticket — every step automated and logged.</p>
           </div>
           <div style={{ position: 'relative' }}>
             <div style={{ position: 'absolute', left: 28, top: 40, bottom: 40, width: 1, background: 'linear-gradient(to bottom,var(--primary),var(--chart-2))' }} />

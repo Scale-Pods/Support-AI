@@ -34,18 +34,22 @@ export default function Badge({ children, variant = 'gray', className = '' }: Ba
   )
 }
 
+const statusMap: Record<string, BadgeProps['variant']> = { open:'blue', in_progress:'yellow', resolved:'green', closed:'gray' }
 export function statusBadge(s: string): BadgeProps['variant'] {
-  return ({ open:'blue', in_progress:'yellow', resolved:'green', closed:'gray' } as any)[s] || 'gray'
+  return statusMap[s] || 'gray'
 }
+const priorityMap: Record<string, BadgeProps['variant']> = { critical:'red', high:'orange', medium:'yellow', low:'gray' }
 export function priorityBadge(p: string): BadgeProps['variant'] {
-  return ({ critical:'red', high:'orange', medium:'yellow', low:'gray' } as any)[p] || 'gray'
+  return priorityMap[p] || 'gray'
 }
+const catMap: Record<string, BadgeProps['variant']> = { technical:'blue', account:'cyan', transaction:'orange', feature:'purple', escalation:'red', general:'gray' }
 export function catBadge(c: string): BadgeProps['variant'] {
-  return ({ technical:'blue', account:'cyan', transaction:'orange', feature:'purple', escalation:'red', general:'gray' } as any)[c] || 'gray'
+  return catMap[c] || 'gray'
 }
 export function confBadge(c: number): BadgeProps['variant'] {
   return c >= 0.7 ? 'green' : c >= 0.45 ? 'yellow' : 'red'
 }
+const severityMap: Record<string, BadgeProps['variant']> = { critical:'red', high:'orange', medium:'yellow', low:'gray', warning:'yellow', info:'blue' }
 export function severityBadge(s: string): BadgeProps['variant'] {
-  return ({ critical:'red', high:'orange', medium:'yellow', low:'gray', warning:'yellow', info:'blue' } as any)[s?.toLowerCase()] || 'gray'
+  return severityMap[s?.toLowerCase() ?? ''] || 'gray'
 }

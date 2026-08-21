@@ -1,27 +1,52 @@
 'use client'
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useSyncExternalStore, useCallback, ReactNode } from 'react'
+
+type Theme = 'light' | 'dark'
 
 interface ThemeContextType {
-  theme: 'light' | 'dark'
+  theme: Theme
   toggleTheme: () => void
 }
 
 const ThemeContext = createContext<ThemeContextType>({} as ThemeContextType)
 
+let currentTheme: Theme | null = null
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+function getTheme(): Theme {
+  if (currentTheme === null) {
+    currentTheme = typeof window !== 'undefined' && localStorage.getItem('theme') === 'light' ? 'light' : 'dark'
+  }
+  return currentTheme
+}
+
+function getServerTheme(): Theme {
+  return 'dark'
+}
+
+function applyTheme(theme: Theme) {
+  document.documentElement.classList.toggle('dark', theme === 'dark')
+  try { localStorage.setItem('theme', theme) } catch {}
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const theme = useSyncExternalStore(subscribe, getTheme, getServerTheme)
 
   useEffect(() => {
-    const stored = localStorage.getItem('theme') as 'light' | 'dark' | null
-    if (stored) setTheme(stored)
-  }, [])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem('theme', theme)
+    applyTheme(theme)
   }, [theme])
 
-  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+  const toggleTheme = useCallback(() => {
+    const next: Theme = getTheme() === 'dark' ? 'light' : 'dark'
+    currentTheme = next
+    applyTheme(next)
+    listeners.forEach(l => l())
+  }, [])
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

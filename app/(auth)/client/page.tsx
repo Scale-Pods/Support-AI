@@ -139,6 +139,7 @@ export default function ClientPortal() {
   const [workflowsLoading, setWorkflowsLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const ensurePromiseRef = useRef<Promise<string | null> | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const supabase = createClient()
 
@@ -282,27 +283,43 @@ export default function ClientPortal() {
   async function ensureSession(token?: string): Promise<string | null> {
     if (!user) return null
     if (persistedSessionId) return persistedSessionId
-    const useToken = token || sessionId
-    const { data: existing } = await supabase
-      .from('public_sessions')
-      .select('id')
-      .eq('session_token', useToken)
-      .maybeSingle()
-    if (existing) { setPersistedSessionId(existing.id); persistSessionToken(useToken); return existing.id }
-    const { data, error } = await supabase
-      .from('public_sessions')
-      .insert({
-        session_token: useToken,
-        user_id: user.id,
-        product_id: profile?.product_id ?? null,
-        channel: 'client',
-        status: 'active'
-      })
-      .select('id')
-      .single()
-    if (error) { console.error('Failed to create session:', error.message); return null }
-    if (data) { setPersistedSessionId(data.id); persistSessionToken(useToken) }
-    return data?.id ?? null
+    if (ensurePromiseRef.current) return ensurePromiseRef.current
+    const attempt = (async () => {
+      const useToken = token || sessionId
+      const { data: existing } = await supabase
+        .from('public_sessions')
+        .select('id')
+        .eq('session_token', useToken)
+        .maybeSingle()
+      if (existing) { setPersistedSessionId(existing.id); persistSessionToken(useToken); return existing.id }
+      const { data, error } = await supabase
+        .from('public_sessions')
+        .insert({
+          session_token: useToken,
+          user_id: user.id,
+          product_id: profile?.product_id ?? null,
+          channel: 'client',
+          status: 'active'
+        })
+        .select('id')
+        .single()
+      if (error) {
+        if ((error as { code?: string }).code === '23505') {
+          const { data: winner } = await supabase
+            .from('public_sessions')
+            .select('id')
+            .eq('session_token', useToken)
+            .maybeSingle()
+          if (winner) { setPersistedSessionId(winner.id); persistSessionToken(useToken); return winner.id }
+        }
+        console.error('Failed to create session:', error.message)
+        return null
+      }
+      if (data) { setPersistedSessionId(data.id); persistSessionToken(useToken) }
+      return data?.id ?? null
+    })()
+    ensurePromiseRef.current = attempt.finally(() => { ensurePromiseRef.current = null })
+    return ensurePromiseRef.current
   }
 
   async function persistMessage(m: {
@@ -485,13 +502,13 @@ export default function ClientPortal() {
 
         <div style={S.productBox}>
           <div style={{ fontSize:'0.7rem', color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>Active Product</div>
-          <div style={{ fontSize:'0.875rem', fontWeight:600 }}>{(profile as any)?.products?.name || 'No Product Assigned'}</div>
+          <div style={{ fontSize:'0.875rem', fontWeight:600 }}>{profile?.products?.name || 'No Product Assigned'}</div>
           {profile?.product_id && <div style={{ fontSize:'0.7rem', color:'var(--muted-foreground)', fontFamily:'monospace', marginTop:2 }}>{profile.product_id.substr(0,12)}…</div>}
         </div>
 
         <div style={{ marginBottom:'2rem' }}>
           <div style={S.sectionLabel}>Support</div>
-          {([['chat',<MessageSquare size={16} />,'Chat Support'],['history',<Clock size={16} />,'Session History'],['feedback',<Star size={16} />,'Feedback']] as const).map(([v, icon, label]) => (
+          {([['chat',<MessageSquare size={16} key="chat" />,'Chat Support'],['history',<Clock size={16} key="history" />,'Session History'],['feedback',<Star size={16} key="feedback" />,'Feedback']] as const).map(([v, icon, label]) => (
             <div key={v as string} style={{ ...S.navItem, ...(view===v ? S.navActive : {}) }} onClick={() => { setView(v); setSidebarOpen(false); if(v==='history') loadHistory() }}>
               <span>{icon}</span>{label}
             </div>
@@ -532,7 +549,7 @@ export default function ClientPortal() {
               </div>
             </div>
             <div className="client-banner" style={S.banner}>
-              <span>Responding to questions about: <strong style={{ color:'var(--primary)' }}>{(profile as any)?.products?.name || 'your product'}</strong></span>
+              <span>Responding to questions about: <strong style={{ color:'var(--primary)' }}>{profile?.products?.name || 'your product'}</strong></span>
               <span style={{ color:'var(--muted-foreground)', fontSize:'0.75rem' }}>Scoped to your product KB only</span>
             </div>
             <div className="client-workflowbar" style={S.workflowBar}>
@@ -556,7 +573,7 @@ export default function ClientPortal() {
                 <div style={S.emptyState}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'center', marginBottom:'1rem' }}><Bot size={48} color="var(--muted-foreground)" /></div>
                   <div style={{ fontFamily:'Inter,sans-serif', fontSize:'1.125rem', color:'var(--muted-foreground)', marginBottom:'0.5rem' }}>How can I help you today?</div>
-                  <div style={{ fontSize:'0.875rem', maxWidth:340, lineHeight:1.6 }}>Ask about your product's automation workflows, what they do, or any known issues. I'll search our knowledge base and give you an accurate answer.</div>
+                  <div style={{ fontSize:'0.875rem', maxWidth:340, lineHeight:1.6 }}>Ask about your product&apos;s automation workflows, what they do, or any known issues. I&apos;ll search our knowledge base and give you an accurate answer.</div>
                 </div>
               )}
               {messages.map(m => (
@@ -577,7 +594,7 @@ export default function ClientPortal() {
                           ))}
                         </div>
                       )}
-                      {m.escalated && <div style={S.escalNote}><span style={{ display:'inline-flex', alignItems:'center', gap:6, marginRight:4 }}><AlertTriangle size={14} /></span>This query has been escalated to our support team. You'll be contacted shortly.</div>}
+                      {m.escalated && <div style={S.escalNote}><span style={{ display:'inline-flex', alignItems:'center', gap:6, marginRight:4 }}><AlertTriangle size={14} /></span>This query has been escalated to our support team. You&apos;ll be contacted shortly.</div>}
                     {m.role === 'ai' && (
                       <div style={S.msgMeta}>
                         {m.time}
@@ -672,7 +689,7 @@ export default function ClientPortal() {
                   <div style={{ fontFamily:'Inter,sans-serif', fontSize:'1.125rem', color:'var(--muted-foreground)' }}>No sessions yet</div>
                 </div>
               ) : sessions.map(s => {
-                const msgs = (s as any).public_messages || []
+                const msgs = s.public_messages || []
                 const last = msgs[msgs.length - 1]
                 const preview = last?.sender === 'ai' ? sanitizeReply(last.content || '') : (last?.content || '')
                 return (
@@ -724,7 +741,7 @@ export default function ClientPortal() {
 
         {/* SESSION THREAD MODAL */}
         {openSession && (() => {
-          const thread = [...((openSession as any).public_messages || [])].sort((a: { created_at: string }, b: { created_at: string }) =>
+          const thread = [...(openSession.public_messages || [])].sort((a, b) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
           return (
             <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:'1.5rem' }} onClick={() => setOpenSession(null)}>
@@ -737,7 +754,7 @@ export default function ClientPortal() {
                   <button style={S.btnGhost} onClick={() => setOpenSession(null)}><X size={16} /></button>
                 </div>
                 <div style={{ flex:1, overflowY:'auto', padding:'1.5rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
-                  {thread.map((m: any, i: number) => {
+                  {thread.map((m, i) => {
                     const role = m.sender === 'user' ? 'user' : (m.sender === 'agent' ? 'agent' : 'ai')
                     return (
                       <div key={m.id || i} style={role === 'user' ? S.msgUser : (role === 'agent' ? S.msgAgent : S.msgAi)}>
@@ -747,7 +764,7 @@ export default function ClientPortal() {
                           {role === 'agent' && <div style={{ fontSize:'0.6875rem', color:'var(--chart-1)', marginTop:4 }}>Support Agent</div>}
                           {m.files && m.files.length > 0 && (
                             <div style={S.fileMsgContainer}>
-                              {m.files.map((f: any, fi: number) => f.type.startsWith('image/') ? (
+                              {m.files.map((f, fi) => f.type.startsWith('image/') ? (
                                 <img key={fi} src={f.url || f.data} alt={f.name} style={S.fileMsgImage} title={f.name} />
                               ) : (
                                 <a key={fi} href={f.url || f.data} target="_blank" rel="noreferrer" style={S.fileMsgItem}>

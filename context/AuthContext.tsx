@@ -1,10 +1,11 @@
 'use client'
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase'
 import type { User } from '@/lib/types'
 
 interface AuthContextType {
-  user: any | null
+  user: SupabaseUser | null
   profile: User | null
   token: string | null
   loading: boolean
@@ -16,11 +17,31 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({} as AuthContextType)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]       = useState<any>(null)
+  const [user, setUser]       = useState<SupabaseUser | null>(null)
   const [profile, setProfile] = useState<User | null>(null)
   const [token, setToken]     = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
+
+  const loadProfile = useCallback(async (userId: string, accessToken: string) => {
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    if (data) {
+      const profile = data as User
+      if (profile.product_id) {
+        const { data: product } = await supabase
+          .from('products')
+          .select('name, slug')
+          .eq('id', profile.product_id)
+          .single()
+        if (product) profile.products = product
+      }
+      setProfile(profile)
+    }
+  }, [supabase])
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -39,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+      if (event === 'SIGNED_OUT') {
         setUser(null)
         setProfile(null)
         setToken(null)
@@ -66,27 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
-
-  async function loadProfile(userId: string, accessToken: string) {
-    const { data } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    if (data) {
-      const profile = data as User
-      if (profile.product_id) {
-        const { data: product } = await supabase
-          .from('products')
-          .select('name, slug')
-          .eq('id', profile.product_id)
-          .single()
-        if (product) profile.products = product
-      }
-      setProfile(profile)
-    }
-  }
+  }, [loadProfile])
 
   async function signIn(email: string, password: string): Promise<string | null> {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
